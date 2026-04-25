@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SN – Soluções Contábeis</title>
+  <link rel="icon" type="image/png" href="https://res.cloudinary.com/dk10wezy9/image/upload/v1777137104/SN_faviicon_yvmfzg.png"/>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+  <div id="app"></div>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+  <!-- Firebase Compat -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+
+  <!-- Inicializa Firebase -->
+  <script>
+    firebase.initializeApp({
+      apiKey: "AIzaSyD5XFursSCtD1eiTvXRvte3txYwwG-TtK4",
+      authDomain: "sncontabilidade-81091.firebaseapp.com",
+      projectId: "sncontabilidade-81091",
+      storageBucket: "sncontabilidade-81091.firebasestorage.app",
+      messagingSenderId: "175382817293",
+      appId: "1:175382817293:web:f376558b67310604040344",
+      measurementId: "G-29N01VNFVR"
+    });
+
+    // Página de clientes — sem modo admin
+    const ADMIN_MODE = false;
+  </script>
+
+  <!-- App -->
+  <script src="app.js"></script>
+</body>
+</html>
