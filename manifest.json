@@ -2,8 +2,8 @@
   "name": "SN Soluções Contábeis",
   "short_name": "SN Contábil",
   "description": "Sistema de Gestão Financeira – SN Soluções Contábeis",
-  "start_url": "/index.html",
-  "scope": "/",
+  "start_url": "index.html",
+  "scope": ".",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#141414",
@@ -11,13 +11,13 @@
   "lang": "pt-BR",
   "icons": [
     {
-      "src": "icon-192.png",
+      "src": "ícone-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "icon-512.png",
+      "src": "ícone-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
