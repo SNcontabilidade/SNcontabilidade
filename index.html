@@ -4,7 +4,28 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>SN – Soluções Contábeis</title>
+
+  <!-- ═══ PWA – Meta tags obrigatórias ═══════════════════════════════════════ -->
+
+  <!-- Manifest (Android + Chrome + Edge) -->
+  <link rel="manifest" href="manifest.json"/>
+
+  <!-- Cor da barra de status do sistema operacional -->
+  <meta name="theme-color" content="#f59e0b"/>
+
+  <!-- iOS Safari: habilita modo standalone (sem barra do Safari) -->
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-title" content="SN Contábil"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+
+  <!-- iOS: ícone da tela inicial -->
+  <link rel="apple-touch-icon" href="icon-192.png"/>
+
+  <!-- Favicon padrão -->
   <link rel="icon" type="image/png" href="https://res.cloudinary.com/dk10wezy9/image/upload/v1777137104/SN_faviicon_yvmfzg.png"/>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+
   <link rel="stylesheet" href="style.css"/>
 </head>
 <body>
@@ -36,5 +57,18 @@
 
   <!-- App -->
   <script src="app.js"></script>
+
+  <!-- ═══ PWA – Registra Service Worker ══════════════════════════════════════ -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js')
+          .then(reg => console.log('[SW] Registrado:', reg.scope))
+          .catch(err => console.warn('[SW] Falhou:', err));
+      });
+    }
+  </script>
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+
 </body>
 </html>
