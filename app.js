@@ -105,7 +105,7 @@ const PC=['#C8961C','#3b82f6','#10b981','#ef4444','#8b5cf6','#ec4899','#06b6d4',
 
 const S={
   page:'login',adminView:'dashboard',viewClientId:null,clientTab:'painel',
-  menuOpen:false,filterOpen:false,period:'month',selectedOp:null,comprovante:'',
+  menuOpen:false,filterOpen:false,period:'month',selectedOp:null,comprovante:'',uploadingComp:false,
   txDate:'',txForm:{},showClientForm:false,editClientId:null,
   filters:{startDate:'',endDate:'',operation:'',banco:'',minVal:'',maxVal:'',busca:''},
   toast:false,clients:[],banks:[...DEFAULT_BANKS],descriptions:[...DEFAULT_DESCRIPTIONS],
@@ -265,7 +265,7 @@ async function doGoogleLogin(){
 }
 function pageChangePwd(){return`<div class="center-page"><img src="${getLogo()}" style="width:140px;margin-bottom:24px;object-fit:contain" alt="SN" onerror="this.style.display='none'"/><div class="card" style="width:100%;max-width:360px"><h3 style="color:var(--accent);margin-bottom:6px">Primeiro Acesso</h3><p style="color:var(--muted);font-size:13px;margin-bottom:20px">Crie uma senha pessoal para continuar.</p><div class="field"><label class="label">Nova Senha</label><input id="cp-pass" type="password" class="inp"/></div><div class="field"><label class="label">Confirmar</label><input id="cp-conf" type="password" class="inp" onkeydown="if(event.key==='Enter')doChangePwd()"/></div><p id="cp-err" class="err"></p><button class="btn btn-acc btn-full" style="padding:12px" onclick="doChangePwd()">Confirmar Nova Senha</button></div></div>`;}
 function doChangePwd(){const p=q('#cp-pass').value,c=q('#cp-conf').value,err=q('#cp-err');if(p.length<6){err.textContent='Mínimo 6 caracteres.';return;}if(p!==c){err.textContent='As senhas não coincidem.';return;}const client=getClient();S.clients=S.clients.map(x=>x.id===client.id?{...x,password:p,mustChangePwd:false}:x);saveClients();S.page='client';render();}
-function doLogout(){firebase.auth().signOut().catch(()=>{});S.session=null;sessionStorage.removeItem('sn:session');S.selectedOp=null;S.comprovante='';S.menuOpen=false;S.filterOpen=false;S.editTxId=null;S.page='login';render();}
+function doLogout(){firebase.auth().signOut().catch(()=>{});S.session=null;sessionStorage.removeItem('sn:session');S.selectedOp=null;S.comprovante='';S.uploadingComp=false;S.menuOpen=false;S.filterOpen=false;S.editTxId=null;S.page='login';render();}
 
 // ─── ADMIN SHELL ──────────────────────────────────────────────────────────────
 function pageAdmin(){
@@ -352,7 +352,7 @@ function admClientDetail(){
   const kpis=[{img:`<img src="https://res.cloudinary.com/dk10wezy9/image/upload/v1777141277/Total-lancamentos_raxtr6.png" style="width:${CFG.KPI_ICON_SIZE};height:${CFG.KPI_ICON_SIZE};object-fit:contain"/>`,val:txs.length,lbl:'Total Lançamentos',color:'var(--blue)'},{img:opImg('receita',CFG.KPI_ICON_SIZE),val:fmtCur(rec),lbl:'Receitas',color:'var(--success)'},{img:opImg('despesa',CFG.KPI_ICON_SIZE),val:fmtCur(desp),lbl:'Despesas',color:'var(--danger)'},{img:`<img src="https://res.cloudinary.com/dk10wezy9/image/upload/v1777141665/Outros_aebx7k.png" style="width:${CFG.KPI_ICON_SIZE};height:${CFG.KPI_ICON_SIZE};object-fit:contain"/>`,val:fmtCur(outros),lbl:'Outros',color:'var(--accent)'},{img:`<img src="https://res.cloudinary.com/dk10wezy9/image/upload/v1777141052/Saldo_vfedtd.png" style="width:${CFG.KPI_ICON_SIZE};height:${CFG.KPI_ICON_SIZE};object-fit:contain"/>`,val:fmtCur(saldo),lbl:'Saldo',color:saldo>=0?'var(--success)':'var(--danger)'}].map(k=>`<div class="kpi-card" style="border-top-color:${k.color}"><div class="kpi-icon">${k.img}</div><div class="kpi-val" style="color:${k.color}">${k.val}</div><div class="kpi-lbl">${k.lbl}</div></div>`).join('');
   const opGroups={};txs.forEach(t=>{if(!opGroups[t.operation])opGroups[t.operation]={value:0,count:0};opGroups[t.operation].value+=t.valor;opGroups[t.operation].count++;});
   const opRows=Object.entries(opGroups).sort((a,b)=>b[1].value-a[1].value).map(([id,g])=>{const op=getOp(id);return`<tr><td><span class="op-pill" style="background:${op?.color||'#888'}22;color:${op?.color||'#888'}">${op?.label||id}</span></td><td>${g.count}</td><td style="color:var(--accent);font-weight:700">${fmtCur(g.value)}</td></tr>`;}).join('')||'<tr><td colspan="3" style="color:var(--muted);padding:12px">Sem dados.</td></tr>';
-  const txRows=txs.slice(0,20).map(t=>{const op=getOp(t.operation);return`<tr><td style="white-space:nowrap">${fmtDate(t.date)}</td><td><span class="op-pill" style="background:${op?.color||'#888'}22;color:${op?.color||'#888'}">${op?.label||t.operation}</span></td><td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.descricao||'—')}</td><td>${esc(t.banco||'—')}</td><td class="${isNeg(t.operation)?'val-neg':'val-pos'}">${isNeg(t.operation)?'−':'+'}${fmtCur(t.valor)}</td></tr>`;}).join('')||'<tr><td colspan="5" style="color:var(--muted);padding:16px">Nenhum lançamento.</td></tr>';
+  const txRows=txs.slice(0,20).map(t=>{const op=getOp(t.operation);return`<tr><td style="white-space:nowrap">${fmtDate(t.date)}</td><td><span class="op-pill" style="background:${op?.color||'#888'}22;color:${op?.color||'#888'}">${op?.label||t.operation}</span></td><td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.descricao||'—')}</td><td>${esc(t.banco||'—')}</td><td class="${isNeg(t.operation)?'val-neg':'val-pos'}">${isNeg(t.operation)?'−':'+'}${fmtCur(t.valor)}</td><td>${t.comprovante?`<a href="${t.comprovante}" target="_blank" style="color:var(--blue);text-decoration:none;font-size:12px">📎 Ver</a>`:''}</td></tr>`;}).join('')||'<tr><td colspan="6" style="color:var(--muted);padding:16px">Nenhum lançamento.</td></tr>';
   return`<button class="back-btn" onclick="setAdminView('clients')">← Voltar aos Clientes</button>
   <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">
     <div style="display:flex;align-items:center;gap:14px;flex:1"><div class="cl-avatar" style="width:52px;height:52px;font-size:18px">${initials}</div><div><div style="font-size:20px;font-weight:700">${esc(c.razaoSocial)}</div><div style="font-size:13px;color:var(--muted);margin-top:4px;display:flex;gap:16px;flex-wrap:wrap"><span>📄 ${esc(c.cnpj)}</span><span>✉️ ${esc(c.email)}</span><span>👤 ${esc(c.username)}</span></div></div></div>
@@ -361,7 +361,7 @@ function admClientDetail(){
   <div class="kpi-grid" style="margin-bottom:20px">${kpis}</div>
   <div class="detail-charts"><div class="chart-card"><div class="chart-title">Movimentações por Mês</div><div class="chart-sub">Receitas vs Despesas</div><canvas id="cl-chart-bar"></canvas></div><div class="chart-card"><div class="chart-title">Por Tipo</div><div class="chart-sub">Distribuição do valor</div><canvas id="cl-chart-pie"></canvas></div></div>
   <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-bottom:20px">
-    <div><div class="section-title" style="margin-bottom:12px">Últimos ${Math.min(txs.length,20)} Lançamentos</div><div class="tx-table-wrap"><table class="tx-table"><thead><tr><th>Data</th><th>Operação</th><th>Descrição</th><th>Banco</th><th>Valor</th></tr></thead><tbody>${txRows}</tbody></table></div></div>
+    <div><div class="section-title" style="margin-bottom:12px">Últimos ${Math.min(txs.length,20)} Lançamentos</div><div class="tx-table-wrap"><table class="tx-table"><thead><tr><th>Data</th><th>Operação</th><th>Descrição</th><th>Banco</th><th>Valor</th><th>Comprovante</th></tr></thead><tbody>${txRows}</tbody></table></div></div>
     <div><div class="section-title" style="margin-bottom:12px">Por Operação</div><div class="tx-table-wrap"><table class="tx-table"><thead><tr><th>Tipo</th><th>Qtd</th><th>Total</th></tr></thead><tbody>${opRows}</tbody></table></div></div>
   </div>`;
 }
@@ -607,13 +607,13 @@ async function sheetsEnsureTab(name){
     if(!res)return false;
     const newId=res.replies?.[0]?.addSheet?.properties?.sheetId;
     // Headers
-    await sheetsReq('PUT',`/values/${encodeURIComponent(name)}!A1:E1?valueInputOption=USER_ENTERED`,{
-      values:[['Data','Operação','Valor (R$)','Banco','Descrição']]
+    await sheetsReq('PUT',`/values/${encodeURIComponent(name)}!A1:F1?valueInputOption=USER_ENTERED`,{
+      values:[['Data','Operação','Valor (R$)','Banco','Descrição','Comprovante']]
     });
     // Format header bold + freeze
     if(newId!==undefined){
       await sheetsReq('POST',':batchUpdate',{requests:[
-        {repeatCell:{range:{sheetId:newId,startRowIndex:0,endRowIndex:1},cell:{userEnteredFormat:{textFormat:{bold:true},backgroundColor:{red:.78,green:.59,blue:.11}}},fields:'userEnteredFormat'}},
+        {repeatCell:{range:{sheetId:newId,startRowIndex:0,endRowIndex:1,startColumnIndex:0,endColumnIndex:6},cell:{userEnteredFormat:{textFormat:{bold:true},backgroundColor:{red:.78,green:.59,blue:.11}}},fields:'userEnteredFormat'}},
         {updateSheetProperties:{properties:{sheetId:newId,gridProperties:{frozenRowCount:1}},fields:'gridProperties.frozenRowCount'}}
       ]});
     }
@@ -625,7 +625,7 @@ async function sheetsSyncClient(client){
   const ok=await sheetsEnsureTab(name);
   if(!ok)return false;
   // Clear existing data (keep header)
-  await sheetsReq('POST',`/values/${encodeURIComponent(name)}!A2:E:clear`,{});
+  await sheetsReq('POST',`/values/${encodeURIComponent(name)}!A2:F:clear`,{});
   // Write transactions
   const txs=(S.txMap[client.id]||[]).slice().sort((a,b)=>(a.date||'').localeCompare(b.date||''));
   if(txs.length){
@@ -634,7 +634,8 @@ async function sheetsSyncClient(client){
       getOp(t.operation)?.label||t.operation,
       Number(t.valor||0),
       t.banco||'',
-      t.descricao||''
+      t.descricao||'',
+      t.comprovante||''
     ]);
     await sheetsReq('PUT',`/values/${encodeURIComponent(name)}!A2?valueInputOption=USER_ENTERED`,{values,majorDimension:'ROWS'});
   }
@@ -890,7 +891,12 @@ function screenNovo(){
       <div class="sel-wrap" style="margin-bottom:6px"><select id="f-desc-sel" class="sel ${S.txForm?.desc?'':'empty'}" onchange="applyDescSel(this)"><option value="">Selecione uma descrição...</option>${descOpts}</select><span class="sel-arr">▼</span></div>
       <input id="f-desc" class="inp" placeholder="Ou digite uma descrição livre..." value="${esc(S.txForm?.desc||'')}"/>
     </div>
-    <div class="field"><label class="label">Comprovante</label><div class="comp-btn ${S.comprovante?'has-file':''}" onclick="q('#f-file').click()">${S.comprovante?'📎 '+esc(S.comprovante):'📷  Adicionar comprovante'}</div><input id="f-file" type="file" accept="image/*" style="display:none" onchange="setComp(this)"/></div>
+    <div class="field"><label class="label">Comprovante</label>
+      <div class="comp-btn ${S.uploadingComp?'has-file':S.comprovante?'has-file':''}" onclick="${S.uploadingComp?'':"q('#f-file').click()"}" style="${S.uploadingComp?'cursor:wait;opacity:.7':''}">
+        ${S.uploadingComp?'⏳ Enviando comprovante...':S.comprovante?`<span style="display:flex;align-items:center;gap:8px;justify-content:center">📎 Comprovante anexado &nbsp;<a href="${S.comprovante}" target="_blank" onclick="event.stopPropagation()" style="color:var(--accent);font-size:12px;text-decoration:underline">Ver</a></span>`:'📷  Adicionar comprovante'}
+      </div>
+      <input id="f-file" type="file" accept="image/*" style="display:none" onchange="setComp(this)" ${S.uploadingComp?'disabled':''}/>
+    </div>
     <div class="field"><label class="label">Banco *</label><div style="display:flex;align-items:center;gap:8px"><span id="b-prev" style="min-width:${CFG.BANK_ICON_SIZE}">${bankLogo(S._bprev||'',CFG.BANK_ICON_SIZE)}</span><div class="sel-wrap" style="flex:1"><select id="f-banco" class="sel ${S._bprev?'':'empty'}" onchange="updateBancoPreview(this)"><option value="">Selecione o banco</option>${bankOpts}</select><span class="sel-arr">▼</span></div></div></div>
     <div class="field"><label class="label">Complemento</label><input id="f-comp" class="inp" placeholder="Informação adicional (opcional)" value="${esc(S.txForm?.comp||'')}"/></div>
     <div class="field"><label class="label">Responsável</label><input id="f-resp" class="inp" placeholder="Nome do responsável (opcional)" value="${esc(S.txForm?.resp||'')}"/></div>
@@ -903,8 +909,20 @@ function screenNovo(){
   </div>`;
 }
 function selectOp(id){saveFormState();S.selectedOp=id;render();}
-function clearOp(){S.selectedOp=null;S.comprovante='';S.txForm={};S._bprev='';render();}
-function setComp(el){if(el.files[0]){saveFormState();S.comprovante=el.files[0].name;render();}}
+function clearOp(){S.selectedOp=null;S.comprovante='';S.uploadingComp=false;S.txForm={};S._bprev='';render();}
+async function setComp(el){
+  const file=el.files[0];if(!file)return;
+  if(file.size>5*1024*1024){alert('Arquivo muito grande. Máximo 5MB.');return;}
+  saveFormState();S.uploadingComp=true;S.comprovante='';render();
+  try{
+    const fd=new FormData();fd.append('file',file);fd.append('upload_preset','o5v89u2z');
+    const res=await fetch('https://api.cloudinary.com/v1_1/dk10wezy9/image/upload',{method:'POST',body:fd});
+    const data=await res.json();
+    if(data.secure_url){S.comprovante=data.secure_url;}
+    else{alert('Erro ao enviar comprovante. Tente novamente.');}
+  }catch{alert('Erro de conexão ao enviar comprovante.');}
+  S.uploadingComp=false;render();
+}
 function applyDescSel(sel){const inp=q('#f-desc');if(inp&&sel.value){inp.value=sel.value;}}
 function saveFormState(){S.txForm={valor:q('#f-valor')?.value||'',desc:q('#f-desc')?.value||'',comp:q('#f-comp')?.value||'',resp:q('#f-resp')?.value||''};}
 function updateBancoPreview(sel){S._bprev=sel.value;sel.classList.remove('empty');const prev=q('#b-prev');if(prev)prev.innerHTML=bankLogo(sel.value,CFG.BANK_ICON_SIZE);}
@@ -992,7 +1010,7 @@ function screenLista(){
   const is='width:100%;background:var(--inp-bg);border:1px solid var(--border);border-radius:7px;padding:8px 10px;color:var(--text);font-size:13px;font-family:inherit;outline:none';
   const allOpsFilter=[...OPS,...S.customOps];
   const filterPanel=S.filterOpen?`<div class="card" style="margin-bottom:16px"><div style="color:var(--accent);font-weight:700;margin-bottom:12px">← Filtro</div><div class="filter-grid"><div><label class="label">Data Inicial</label><input type="date" style="${is}" value="${f.startDate}" onchange="setFilter('startDate',this.value)"/></div><div><label class="label">Data Final</label><input type="date" style="${is}" value="${f.endDate}" onchange="setFilter('endDate',this.value)"/></div></div><div class="field"><label class="label">Operação</label><select style="${is};appearance:none" onchange="setFilter('operation',this.value)"><option value="">Todas</option>${allOpsFilter.map(o=>`<option value="${o.id}" ${f.operation===o.id?'selected':''}>${o.label}</option>`).join('')}</select></div><div class="field"><label class="label">Banco</label><select style="${is};appearance:none" onchange="setFilter('banco',this.value)"><option value="">Todos</option>${allBancos.map(b=>`<option value="${esc(b)}" ${f.banco===b?'selected':''}>${esc(b)}</option>`).join('')}</select></div><div class="filter-grid"><div><label class="label">Valor Mín.</label><input type="number" style="${is}" value="${f.minVal}" placeholder="0" onchange="setFilter('minVal',this.value)"/></div><div><label class="label">Valor Máx.</label><input type="number" style="${is}" value="${f.maxVal}" placeholder="∞" onchange="setFilter('maxVal',this.value)"/></div></div><div class="field"><label class="label">Busca</label><input style="${is}" value="${esc(f.busca)}" placeholder="Descrição, responsável..." onchange="setFilter('busca',this.value)"/></div><button class="btn btn-ghost btn-full" style="margin-top:4px;font-size:13px" onclick="clearFilters()">Limpar Filtros</button></div>`:'';
-  const txCards=filtered.map(t=>{const op=getOp(t.operation);return`<div class="tx-card" style="border-left-color:${op?.color||'var(--accent)'}"><div class="tx-row"><div class="tx-left"><div class="tx-header">${opImg(t.operation,'20px')}<span class="tx-label">${op?.label||t.operation}</span><span class="tx-date">· ${fmtDate(t.date)}</span></div>${t.descricao?`<div class="tx-desc">${esc(t.descricao)}</div>`:''}<div class="tx-meta" style="display:flex;align-items:center;gap:4px">${bankLogo(t.banco,'18px')} ${esc(t.banco)}${t.responsavel?' · '+esc(t.responsavel):''}</div>${t.comprovante?`<div class="tx-comp">${esc(t.comprovante)}</div>`:''}</div><div class="tx-right"><span class="tx-val" style="color:${isNeg(t.operation)?'var(--danger)':'var(--success)'}">${isNeg(t.operation)?'−':'+'}${fmtCur(t.valor)}</span><div class="tx-actions"><button class="tx-edit-btn" onclick="editTx('${t.id}')">✏️ editar</button><button class="tx-del-btn" onclick="deleteTx('${t.id}')">🗑 excluir</button></div></div></div></div>`;}).join('');
+  const txCards=filtered.map(t=>{const op=getOp(t.operation);return`<div class="tx-card" style="border-left-color:${op?.color||'var(--accent)'}"><div class="tx-row"><div class="tx-left"><div class="tx-header">${opImg(t.operation,'20px')}<span class="tx-label">${op?.label||t.operation}</span><span class="tx-date">· ${fmtDate(t.date)}</span></div>${t.descricao?`<div class="tx-desc">${esc(t.descricao)}</div>`:''}<div class="tx-meta" style="display:flex;align-items:center;gap:4px">${bankLogo(t.banco,'18px')} ${esc(t.banco)}${t.responsavel?' · '+esc(t.responsavel):''}</div>${t.comprovante?`<div class="tx-comp"><a href="${t.comprovante}" target="_blank" style="color:var(--blue);text-decoration:none;font-size:12px">📎 Ver comprovante</a></div>`:''}</div><div class="tx-right"><span class="tx-val" style="color:${isNeg(t.operation)?'var(--danger)':'var(--success)'}">${isNeg(t.operation)?'−':'+'}${fmtCur(t.valor)}</span><div class="tx-actions"><button class="tx-edit-btn" onclick="editTx('${t.id}')">✏️ editar</button><button class="tx-del-btn" onclick="deleteTx('${t.id}')">🗑 excluir</button></div></div></div></div>`;}).join('');
   return`<div class="screen"><div class="row-spread" style="margin-bottom:12px"><h3 style="color:var(--text)">Lançamentos (${filtered.length})</h3><div style="display:flex;gap:6px"><button class="btn btn-ghost btn-sm" onclick="printRelatorio()">🖨️ Imprimir</button><button class="btn ${hasFilter?'btn-acc':'btn-ghost'} btn-sm" onclick="toggleFilter()">🔍 ${hasFilter?'Filtro ativo':'Filtro'}</button></div></div>${filterPanel}<div class="card summary" style="margin-bottom:12px"><span class="summary-lbl">Saldo do período</span><span class="summary-val" style="color:${saldo>=0?'var(--success)':'var(--danger)'}">${fmtCur(Math.abs(saldo))}</span></div>${filtered.length===0?'<div class="empty" style="padding-top:40px">Nenhum lançamento encontrado.</div>':txCards}</div>`;
 }
 function setFilter(k,v){S.filters[k]=v;render();}
@@ -1024,11 +1042,11 @@ function screenHistorico(){
   const txRows=txs.slice().sort((a,b)=>b.date.localeCompare(a.date)).map(t=>{
     const op=getOp(t.operation);const neg=isNeg(t.operation);
     return`<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--border)">
-      <div style="display:flex;align-items:center;gap:10px">${opImg(t.operation,'22px')}
-        <div><div style="font-size:13px;font-weight:600;color:var(--text)">${esc(t.descricao||op?.label||t.operation)}</div>
-        <div style="font-size:11px;color:var(--muted)">${fmtDate(t.date)} · ${esc(t.banco||'—')}</div></div>
+      <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">${opImg(t.operation,'22px')}
+        <div style="min-width:0"><div style="font-size:13px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.descricao||op?.label||t.operation)}</div>
+        <div style="font-size:11px;color:var(--muted)">${fmtDate(t.date)} · ${esc(t.banco||'—')}${t.comprovante?` · <a href="${t.comprovante}" target="_blank" style="color:var(--blue);text-decoration:none">📎 comprovante</a>`:''}</div></div>
       </div>
-      <div style="text-align:right">
+      <div style="text-align:right;flex-shrink:0;margin-left:8px">
         <div style="font-weight:700;font-size:14px;color:${neg?'var(--danger)':'var(--success)'}">${neg?'−':'+'}${fmtCur(t.valor)}</div>
         <button class="tx-edit-btn" style="font-size:11px" onclick="editTx('${t.id}')">✏️ editar</button>
       </div>
