@@ -975,7 +975,7 @@ function screenNovo(){
     <div class="field"><label class="label">Valor *</label><div class="inp-icon"><span class="icon-left">R$</span><input id="f-valor" type="number" min="0" step="0.01" class="inp" placeholder="0,00" value="${S.txForm?.valor||''}"/></div></div>
     <div class="field"><label class="label">Descrição *</label>
       <div style="position:relative">
-        <input id="f-desc" class="inp" placeholder="Digite para buscar ou escreva livremente..." value="${esc(S.txForm?.desc||S.descQuery||'')}" autocomplete="off"
+        <input id="f-desc" class="inp" placeholder="Digite para buscar..." value="${esc(S.txForm?.desc||S.descQuery||'')}" autocomplete="off"
           oninput="S.descQuery=this.value;const d=document.getElementById('desc-suggestions');if(d)d.style.display=this.value.length>0?'block':'none';filterDescSuggestions(this.value)"
           onfocus="filterDescSuggestions(this.value)"
           onkeydown="handleDescKey(event)"/>
