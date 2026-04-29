@@ -330,7 +330,7 @@ function saveClientForm(){
   const duplicate=S.clients.find(c=>c.username.toLowerCase()===username.toLowerCase()&&c.id!==S.editClientId);
   if(duplicate){err.textContent='Este login já está em uso por outro cliente.';return;}
   if(S.editClientId){S.clients=S.clients.map(c=>c.id===S.editClientId?{...c,razaoSocial:rs,cnpj,email,username}:c);}
-  else{if(S.clients.length>=30){err.textContent='Limite de 30 clientes atingido.';return;}const newClient={id:uid(),razaoSocial:rs,cnpj,email,username,password:'12345',mustChangePwd:true,createdAt:new Date().toISOString()};
+  else{const newClient={id:uid(),razaoSocial:rs,cnpj,email,username,password:'12345',mustChangePwd:true,createdAt:new Date().toISOString()};
   S.clients.push(newClient);
   sheetsCreateClientTab(newClient);}
   saveClients();S.showClientForm=false;S.editClientId=null;render();
