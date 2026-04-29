@@ -975,7 +975,7 @@ function screenNovo(){
     <div class="field"><label class="label">Valor *</label><div class="inp-icon"><span class="icon-left">R$</span><input id="f-valor" type="number" min="0" step="0.01" class="inp" placeholder="0,00" value="${S.txForm?.valor||''}"/></div></div>
     <div class="field"><label class="label">Descrição *</label>
       <div style="position:relative">
-        <input id="f-desc" class="inp" placeholder="Digite para buscar..." value="${esc(S.txForm?.desc||S.descQuery||'')}" autocomplete="off"
+        <input id="f-desc" class="inp" placeholder="Digite para buscar ou escreva livremente..." value="${esc(S.txForm?.desc||S.descQuery||'')}" autocomplete="off"
           oninput="S.descQuery=this.value;const d=document.getElementById('desc-suggestions');if(d)d.style.display=this.value.length>0?'block':'none';filterDescSuggestions(this.value)"
           onfocus="filterDescSuggestions(this.value)"
           onkeydown="handleDescKey(event)"/>
@@ -1172,6 +1172,7 @@ function screenHistorico(){
       <div style="text-align:right;flex-shrink:0;margin-left:8px">
         <div style="font-weight:700;font-size:14px;color:${neg?'var(--danger)':'var(--success)'}">${neg?'−':'+'}${fmtCur(t.valor)}</div>
         <button class="tx-edit-btn" style="font-size:11px" onclick="editTx('${t.id}')">✏️ editar</button>
+        <button class="tx-del-btn" style="font-size:11px;margin-left:6px" onclick="deleteTx('${t.id}')">🗑 excluir</button>
       </div>
     </div>`;
   }).join('')||`<div style="color:var(--muted);padding:16px;font-size:13px">Nenhum lançamento neste período.</div>`;
