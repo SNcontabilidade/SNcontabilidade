@@ -109,7 +109,7 @@ const S={
   txDate:'',txForm:{},showClientForm:false,editClientId:null,
   filters:{startDate:'',endDate:'',operation:'',banco:'',minVal:'',maxVal:'',busca:''},
   toast:false,clients:[],banks:[...DEFAULT_BANKS],descriptions:[...DEFAULT_DESCRIPTIONS],
-  customOps:[],txMap:{},session:null,charts:{},clientPeriod:'',histPeriod:'',selectedMonths:[],descQuery:'',slicerOpen:false,
+  customOps:[],txMap:{},session:null,charts:{},clientPeriod:'',histPeriod:'',selectedMonths:[],descQuery:'',slicerOpen:false,clientLetter:'',
   opForm:{},uploadingIcon:false,
   customBankIcons:{},     // {NOME_BANCO: 'url'}
   descriptionOps:{},      // {descricao: ['op1','op2',...]}
@@ -301,6 +301,18 @@ function admDashboard(){
 
 // ─── CLIENTES ADMIN ───────────────────────────────────────────────────────────
 function admClients(){
+  const ALPHA='ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+  // letras que têm pelo menos 1 cliente
+  const usedLetters=new Set(S.clients.map(c=>c.razaoSocial.trim().toUpperCase()[0]));
+  const alphaBar=`<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:16px;align-items:center">
+    <button onclick="S.clientLetter='';render()" style="padding:5px 10px;border-radius:6px;border:1.5px solid ${!S.clientLetter?'var(--accent)':'var(--border)'};background:${!S.clientLetter?'var(--accent)':'var(--card2)'};color:${!S.clientLetter?'#000':'var(--muted)'};font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;min-width:36px">Todos</button>
+    ${ALPHA.map(l=>{
+      const has=usedLetters.has(l);
+      const active=S.clientLetter===l;
+      return`<button onclick="${has?`S.clientLetter='${l}';render()`:''}" style="padding:5px 0;border-radius:6px;border:1.5px solid ${active?'var(--accent)':has?'var(--border)':'transparent'};background:${active?'var(--accent)':'var(--card2)'};color:${active?'#000':has?'var(--text)':'var(--border)'};font-size:12px;font-weight:${active?'700':'400'};cursor:${has?'pointer':'default'};font-family:inherit;min-width:32px;text-align:center;transition:all .15s">${l}</button>`;
+    }).join('')}
+  </div>`;
+  const filtered=S.clientLetter?S.clients.filter(c=>c.razaoSocial.trim().toUpperCase().startsWith(S.clientLetter)):S.clients;
   const editData=S.editClientId?S.clients.find(x=>x.id===S.editClientId):null;
   const formHtml=S.showClientForm?`<div class="card" style="margin-bottom:20px">
     <div style="color:var(--accent);font-weight:700;margin-bottom:14px">${editData?'Editar Cliente':'Novo Cliente'}</div>
@@ -312,13 +324,13 @@ function admClients(){
     <p id="cf-err" class="err"></p>
     <div class="row"><button class="btn btn-acc" onclick="saveClientForm()">Salvar</button><button class="btn btn-ghost" onclick="closeClientForm()">Cancelar</button></div>
   </div>`:'';
-  const cards=S.clients.map(c=>{
+  const cards=filtered.map(c=>{
     const txs=S.txMap[c.id]||[];const saldo=txs.reduce((a,t)=>isNeg(t.operation)?a-t.valor:a+t.valor,0);const rec=txs.filter(t=>t.operation==='receita').reduce((a,t)=>a+t.valor,0);const lastTx=txs[0];
     const initials=c.razaoSocial.split(' ').slice(0,2).map(w=>w[0]||'').join('').toUpperCase();
     const badge=c.mustChangePwd?'<span class="cl-badge badge-warn">Senha padrão</span>':txs.length>0?'<span class="cl-badge badge-ok">Ativo</span>':'<span class="cl-badge badge-none">Sem lançamentos</span>';
     return`<div class="cl-card" onclick="openClientDetail('${c.id}')"><div class="cl-card-header"><div class="cl-avatar">${initials||'?'}</div><div><div class="cl-name">${esc(c.razaoSocial)}</div><div class="cl-cnpj">${esc(c.cnpj)}</div><div style="font-size:11px;color:var(--accent);margin-top:2px">Login: <strong>${esc(c.username)}</strong></div></div></div><div class="cl-stats-grid"><div class="cl-stat"><div class="cl-stat-lbl">Lançamentos</div><div class="cl-stat-val" style="color:var(--blue)">${txs.length}</div></div><div class="cl-stat"><div class="cl-stat-lbl">Saldo</div><div class="cl-stat-val" style="color:${saldo>=0?'var(--success)':'var(--danger)'}">${fmtCur(saldo)}</div></div><div class="cl-stat"><div class="cl-stat-lbl">Receitas</div><div class="cl-stat-val" style="color:var(--success)">${fmtCur(rec)}</div></div><div class="cl-stat"><div class="cl-stat-lbl">Último mov.</div><div class="cl-stat-val">${lastTx?fmtDate(lastTx.date):'—'}</div></div></div><div class="cl-card-footer">${badge}<div class="row" style="gap:6px" onclick="event.stopPropagation()"><button class="btn btn-ghost btn-sm" onclick="editClientOpen('${c.id}')">Editar</button><button class="btn btn-ghost btn-sm" onclick="resetClientPwd('${c.id}')">Reset senha</button><button class="btn btn-danger btn-sm" onclick="deleteClient('${c.id}')">Remover</button></div></div></div>`;
   }).join('');
-  return`<div class="row-spread" style="margin-bottom:20px"><div><h2 style="font-size:16px;font-weight:700">${S.clients.length} cliente${S.clients.length!==1?'s':''} cadastrado${S.clients.length!==1?'s':''}</h2></div><button class="btn btn-acc" onclick="openNewClientForm()">+ Novo Cliente</button></div>${formHtml}${S.clients.length===0?'<div class="empty"><div class="empty-icon">👥</div>Nenhum cliente cadastrado ainda.<br><br><button class="btn btn-acc" style="margin-top:16px" onclick="openNewClientForm()">Cadastrar primeiro cliente</button></div>':`<div class="cl-grid">${cards}</div>`}`;
+  return`<div class="row-spread" style="margin-bottom:16px"><div><h2 style="font-size:16px;font-weight:700">${S.clients.length} cliente${S.clients.length!==1?'s':''} cadastrado${S.clients.length!==1?'s':''}${S.clientLetter?` · <span style="color:var(--accent)">${filtered.length} com "${S.clientLetter}"</span>`:''}</h2></div><button class="btn btn-acc" onclick="openNewClientForm()">+ Novo Cliente</button></div>${formHtml}${alphaBar}${S.clients.length===0?'<div class="empty"><div class="empty-icon">👥</div>Nenhum cliente cadastrado ainda.<br><br><button class="btn btn-acc" style="margin-top:16px" onclick="openNewClientForm()">Cadastrar primeiro cliente</button></div>':filtered.length===0?`<div class="empty" style="padding-top:40px"><div style="font-size:48px;margin-bottom:12px">🔍</div><div style="color:var(--muted)">Nenhum cliente com a letra <strong style="color:var(--accent)">${S.clientLetter}</strong></div></div>`:`<div class="cl-grid">${cards}</div>`}`;
 }
 function openNewClientForm(){S.showClientForm=true;S.editClientId=null;render();}
 function editClientOpen(id){S.showClientForm=true;S.editClientId=id;S.adminView='clients';render();}
