@@ -126,6 +126,7 @@ const S={
   adminMsgView:false,
   googleToken:'',     // OAuth token para Sheets API
   sheetsStatus:'',    // '' | 'syncing' | 'ok' | 'error'
+  syncProgress:0,syncTotal:0,
 };
 
 // ─── FIRESTORE ────────────────────────────────────────────────────────────────
@@ -263,6 +264,7 @@ async function doGoogleLogin(){
     const email=result.user.email;
     if(email!==ADMIN_EMAIL){await firebase.auth().signOut();if(errEl)errEl.textContent='Acesso negado. Use a conta Google autorizada.';return;}
     S.googleToken=result.credential?.accessToken||'';
+    if(S.googleToken)sessionStorage.setItem('sn:googleToken',S.googleToken);
     S.session={isAdmin:true,adminEmail:email};
     sessionStorage.setItem('sn:session',JSON.stringify(S.session));
     S.page='admin';S.adminView='dashboard';render();
@@ -270,7 +272,7 @@ async function doGoogleLogin(){
 }
 function pageChangePwd(){return`<div class="center-page"><img src="${getLogo()}" style="width:140px;margin-bottom:24px;object-fit:contain" alt="SN" onerror="this.style.display='none'"/><div class="card" style="width:100%;max-width:360px"><h3 style="color:var(--accent);margin-bottom:6px">Primeiro Acesso</h3><p style="color:var(--muted);font-size:13px;margin-bottom:20px">Crie uma senha pessoal para continuar.</p><div class="field"><label class="label">Nova Senha</label><input id="cp-pass" type="password" class="inp"/></div><div class="field"><label class="label">Confirmar</label><input id="cp-conf" type="password" class="inp" onkeydown="if(event.key==='Enter')doChangePwd()"/></div><p id="cp-err" class="err"></p><button class="btn btn-acc btn-full" style="padding:12px" onclick="doChangePwd()">Confirmar Nova Senha</button></div></div>`;}
 function doChangePwd(){const p=q('#cp-pass').value,c=q('#cp-conf').value,err=q('#cp-err');if(p.length<6){err.textContent='Mínimo 6 caracteres.';return;}if(p!==c){err.textContent='As senhas não coincidem.';return;}const client=getClient();S.clients=S.clients.map(x=>x.id===client.id?{...x,password:p,mustChangePwd:false}:x);saveClients();S.page='client';render();}
-function doLogout(){firebase.auth().signOut().catch(()=>{});S.session=null;sessionStorage.removeItem('sn:session');S.selectedOp=null;S.comprovante='';S.uploadingComp=false;S.menuOpen=false;S.filterOpen=false;S.editTxId=null;S.page='login';render();}
+function doLogout(){firebase.auth().signOut().catch(()=>{});S.session=null;S.googleToken='';sessionStorage.removeItem('sn:session');sessionStorage.removeItem('sn:googleToken');S.selectedOp=null;S.comprovante='';S.uploadingComp=false;S.menuOpen=false;S.filterOpen=false;S.editTxId=null;S.page='login';render();}
 
 // ─── ADMIN SHELL ──────────────────────────────────────────────────────────────
 function pageAdmin(){
@@ -286,7 +288,7 @@ function pageAdmin(){
   else if(S.adminView==='descriptions')content=admDescriptions();
   else if(S.adminView==='operacoes')content=admOperacoes();
   else if(S.adminView==='mensagens')content=admMensagens();
-  return`<div class="admin-wrap"><aside class="admin-sidebar"><div class="sidebar-logo"><img src="${getLogo()}" alt="SN" onerror="this.style.display='none'"/></div><div class="sidebar-user"><div class="sidebar-user-label">Acesso</div><div class="sidebar-user-name">Administrador</div></div><nav class="sidebar-nav">${sideItems}</nav><div class="sidebar-footer"><button class="btn btn-ghost btn-full btn-sm" onclick="doLogout()">Sair</button></div></aside><main class="admin-main"><div class="admin-header"><div class="admin-header-left"><h1>${title}</h1><p>${sub}</p></div><div style="display:flex;align-items:center;gap:12px"><div style="font-size:12px;color:var(--muted)">${new Date().toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long'})}</div><a href="${SHEETS_URL}" target="_blank" title="Abrir Google Sheets" style="display:inline-flex;align-items:center;gap:6px;background:none;border:1px solid var(--border);border-radius:7px;padding:6px 10px;text-decoration:none;color:var(--text);font-size:12px;font-weight:500;transition:background .15s" onmouseover="this.style.background='var(--card2)'" onmouseout="this.style.background='none'"><img src="${SHEETS_ICON}" style="width:20px;height:20px;object-fit:contain"/> Sheets</a><button onclick="syncAllToSheets()" title="Sincronizar todos os clientes com o Google Sheets" style="display:inline-flex;align-items:center;gap:6px;background:none;border:1px solid var(--border);border-radius:7px;padding:6px 10px;cursor:pointer;color:var(--text);font-size:12px;font-weight:500;font-family:inherit;transition:background .15s" onmouseover="this.style.background='var(--card2)'" onmouseout="this.style.background='none'">${S.sheetsStatus==='syncing'?'⏳ Sincronizando...':S.sheetsStatus==='ok'?'✓ Sincronizado':S.sheetsStatus==='error'?'⚠️ Erro':'🔄 Sincronizar'}</button></div></div><div class="admin-content">${content}</div></main></div>`;
+  return`<div class="admin-wrap"><aside class="admin-sidebar"><div class="sidebar-logo"><img src="${getLogo()}" alt="SN" onerror="this.style.display='none'"/></div><div class="sidebar-user"><div class="sidebar-user-label">Acesso</div><div class="sidebar-user-name">Administrador</div></div><nav class="sidebar-nav">${sideItems}</nav><div class="sidebar-footer"><button class="btn btn-ghost btn-full btn-sm" onclick="doLogout()">Sair</button></div></aside><main class="admin-main"><div class="admin-header"><div class="admin-header-left"><h1>${title}</h1><p>${sub}</p></div><div style="display:flex;align-items:center;gap:12px"><div style="font-size:12px;color:var(--muted)">${new Date().toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long'})}</div><a href="${SHEETS_URL}" target="_blank" title="Abrir Google Sheets" style="display:inline-flex;align-items:center;gap:6px;background:none;border:1px solid var(--border);border-radius:7px;padding:6px 10px;text-decoration:none;color:var(--text);font-size:12px;font-weight:500;transition:background .15s" onmouseover="this.style.background='var(--card2)'" onmouseout="this.style.background='none'"><img src="${SHEETS_ICON}" style="width:20px;height:20px;object-fit:contain"/> Sheets</a><button onclick="syncAllToSheets()" title="Sincronizar todos os clientes com o Google Sheets" style="display:inline-flex;align-items:center;gap:6px;background:none;border:1px solid var(--border);border-radius:7px;padding:6px 10px;cursor:pointer;color:var(--text);font-size:12px;font-weight:500;font-family:inherit;transition:background .15s" onmouseover="this.style.background='var(--card2)'" onmouseout="this.style.background='none'">${S.sheetsStatus==='syncing'?`⏳ ${S.syncProgress}/${S.syncTotal}...`:S.sheetsStatus==='ok'?'✓ Sincronizado':S.sheetsStatus==='error'?'⚠️ Erro':'🔄 Sincronizar'}</button></div></div><div class="admin-content">${content}</div></main></div>`;
 }
 function setAdminView(v){S.adminView=v;S.showClientForm=false;render();}
 
@@ -601,77 +603,120 @@ function deleteCustomOp(id){if(!confirm('Remover esta operação personalizada?'
 // ─── GOOGLE SHEETS API ────────────────────────────────────────────────────────
 async function sheetsReq(method, path, body){
   if(!S.googleToken){alert('Faça login com Google novamente para usar o Sheets.');return null;}
-  try{
-    const res=await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}${path}`,{
-      method,
-      headers:{'Authorization':`Bearer ${S.googleToken}`,'Content-Type':'application/json'},
-      body:body?JSON.stringify(body):undefined
-    });
-    if(res.status===401){S.googleToken='';alert('Token do Google expirado. Faça logout e login novamente.');return null;}
-    return res.ok?res.json():null;
-  }catch(e){console.error('Sheets API error',e);return null;}
+  for(let attempt=0;attempt<3;attempt++){
+    try{
+      const res=await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}${path}`,{
+        method,
+        headers:{'Authorization':`Bearer ${S.googleToken}`,'Content-Type':'application/json'},
+        body:body?JSON.stringify(body):undefined
+      });
+      if(res.status===401){S.googleToken='';sessionStorage.removeItem('sn:googleToken');alert('Token do Google expirado. Faça logout e login novamente.');return null;}
+      if(res.status===429){await new Promise(r=>setTimeout(r,2000*(attempt+1)));continue;}
+      return res.ok?res.json():null;
+    }catch(e){if(attempt===2)console.error('Sheets API error',e);}
+  }
+  return null;
 }
+
 async function sheetsGetTabs(){
   const data=await sheetsReq('GET','?fields=sheets.properties');
   return data?.sheets?.map(s=>s.properties)||[];
 }
-async function sheetsEnsureTab(name){
-  const tabs=await sheetsGetTabs();
-  if(!tabs)return false;
-  const exists=tabs.find(t=>t.title===name);
-  if(!exists){
-    const res=await sheetsReq('POST',':batchUpdate',{requests:[{addSheet:{properties:{title:name}}}]});
-    if(!res)return false;
-    const newId=res.replies?.[0]?.addSheet?.properties?.sheetId;
-    // Headers
-    await sheetsReq('PUT',`/values/${encodeURIComponent(name)}!A1:F1?valueInputOption=USER_ENTERED`,{
-      values:[['Data','Operação','Valor (R$)','Banco','Descrição','Comprovante']]
-    });
-    // Format header bold + freeze
-    if(newId!==undefined){
-      await sheetsReq('POST',':batchUpdate',{requests:[
-        {repeatCell:{range:{sheetId:newId,startRowIndex:0,endRowIndex:1,startColumnIndex:0,endColumnIndex:6},cell:{userEnteredFormat:{textFormat:{bold:true},backgroundColor:{red:.78,green:.59,blue:.11}}},fields:'userEnteredFormat'}},
-        {updateSheetProperties:{properties:{sheetId:newId,gridProperties:{frozenRowCount:1}},fields:'gridProperties.frozenRowCount'}}
-      ]});
+
+// Cria abas faltantes em lotes de até 500 operações por batchUpdate
+async function sheetsEnsureAllTabs(existingTabs){
+  const missing=S.clients.filter(c=>!existingTabs.find(t=>t.title===c.razaoSocial));
+  if(!missing.length)return existingTabs;
+  // Cria em lotes de 100 (cada addSheet = 1 operação)
+  const BATCH=100;
+  let allTabs=[...existingTabs];
+  for(let i=0;i<missing.length;i+=BATCH){
+    const chunk=missing.slice(i,i+BATCH);
+    const requests=chunk.map(c=>({addSheet:{properties:{title:c.razaoSocial}}}));
+    const res=await sheetsReq('POST',':batchUpdate',{requests});
+    if(!res)continue;
+    // Coleta os novos sheetIds e formata headers
+    const newSheets=res.replies?.map((r,idx)=>({
+      title:chunk[idx].razaoSocial,
+      sheetId:r.addSheet?.properties?.sheetId
+    })).filter(s=>s.sheetId!==undefined)||[];
+    // Formata todos os headers de uma vez
+    if(newSheets.length){
+      const fmtRequests=newSheets.flatMap(s=>[
+        {repeatCell:{range:{sheetId:s.sheetId,startRowIndex:0,endRowIndex:1,startColumnIndex:0,endColumnIndex:6},cell:{userEnteredFormat:{textFormat:{bold:true},backgroundColor:{red:.78,green:.59,blue:.11}}},fields:'userEnteredFormat'}},
+        {updateSheetProperties:{properties:{sheetId:s.sheetId,gridProperties:{frozenRowCount:1}},fields:'gridProperties.frozenRowCount'}}
+      ]);
+      await sheetsReq('POST',':batchUpdate',{requests:fmtRequests});
+      // Escreve headers em batch
+      const headerData=newSheets.map(s=>({range:`${encodeURIComponent(s.title)}!A1:F1`,values:[['Data','Operação','Valor (R$)','Banco','Descrição','Comprovante']]}));
+      await sheetsReq('POST','/values:batchUpdate?valueInputOption=USER_ENTERED',{data:headerData});
     }
+    allTabs=[...allTabs,...newSheets];
+    if(i+BATCH<missing.length)await new Promise(r=>setTimeout(r,500));
   }
-  return true;
+  return allTabs;
 }
-async function sheetsSyncClient(client){
-  const name=client.razaoSocial;
-  const ok=await sheetsEnsureTab(name);
-  if(!ok)return false;
-  // Clear existing data (keep header)
-  await sheetsReq('POST',`/values/${encodeURIComponent(name)}!A2:F:clear`,{});
-  // Write transactions
-  const txs=(S.txMap[client.id]||[]).slice().sort((a,b)=>(a.date||'').localeCompare(b.date||''));
-  if(txs.length){
-    const values=txs.map(t=>[
-      fmtDate(t.date),
-      getOp(t.operation)?.label||t.operation,
-      Number(t.valor||0),
-      t.banco||'',
-      t.descricao||'',
-      t.comprovante||''
-    ]);
-    await sheetsReq('PUT',`/values/${encodeURIComponent(name)}!A2?valueInputOption=USER_ENTERED`,{values,majorDimension:'ROWS'});
-  }
-  return true;
-}
+
+// Sincroniza TODOS os clientes em lotes — máximo de requisições possível
 async function syncAllToSheets(){
   if(!S.googleToken){alert('Token do Google não encontrado. Faça logout e login novamente.');return;}
-  S.sheetsStatus='syncing';render();
-  let ok=0,fail=0;
-  for(const client of S.clients){
-    const res=await sheetsSyncClient(client);
-    res?ok++:fail++;
+  S.sheetsStatus='syncing';S.syncProgress=0;S.syncTotal=S.clients.length;render();
+  // 1. Busca abas existentes (1 req)
+  let tabs=await sheetsGetTabs();
+  if(!tabs){S.sheetsStatus='error';render();return;}
+  // 2. Cria abas faltantes em batch
+  tabs=await sheetsEnsureAllTabs(tabs);
+  S.syncProgress=Math.round(S.clients.length*0.3);render();
+  // 3. Limpa dados antigos de todos em batch (lotes de 100 ranges)
+  const BATCH=100;
+  for(let i=0;i<S.clients.length;i+=BATCH){
+    const chunk=S.clients.slice(i,i+BATCH);
+    const ranges=chunk.map(c=>`${c.razaoSocial}!A2:F`);
+    await sheetsReq('POST','/values:batchClear',{ranges});
+    if(i+BATCH<S.clients.length)await new Promise(r=>setTimeout(r,300));
   }
-  S.sheetsStatus=fail===0?'ok':'error';render();
+  S.syncProgress=Math.round(S.clients.length*0.6);render();
+  // 4. Escreve dados de todos em batch (lotes de 100)
+  for(let i=0;i<S.clients.length;i+=BATCH){
+    const chunk=S.clients.slice(i,i+BATCH);
+    const data=chunk.map(c=>{
+      const txs=(S.txMap[c.id]||[]).slice().sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+      return{
+        range:`${c.razaoSocial}!A2`,
+        values:txs.length?txs.map(t=>[fmtDate(t.date),getOp(t.operation)?.label||t.operation,Number(t.valor||0),t.banco||'',t.descricao||'',t.comprovante||'']):[[]]
+      };
+    });
+    await sheetsReq('POST','/values:batchUpdate?valueInputOption=USER_ENTERED',{data});
+    S.syncProgress=Math.round(S.clients.length*0.6)+Math.round((i/S.clients.length)*S.clients.length*0.4);render();
+    if(i+BATCH<S.clients.length)await new Promise(r=>setTimeout(r,300));
+  }
+  S.sheetsStatus='ok';S.syncProgress=0;S.syncTotal=0;render();
   setTimeout(()=>{S.sheetsStatus='';render();},3000);
 }
+
+async function sheetsSyncClient(client){
+  if(!S.googleToken)return false;
+  const tabs=await sheetsGetTabs();
+  if(!tabs)return false;
+  const exists=tabs.find(t=>t.title===client.razaoSocial);
+  if(!exists){
+    const res=await sheetsReq('POST',':batchUpdate',{requests:[{addSheet:{properties:{title:client.razaoSocial}}}]});
+    if(!res)return false;
+    const sid=res.replies?.[0]?.addSheet?.properties?.sheetId;
+    if(sid!==undefined){
+      await sheetsReq('POST',':batchUpdate',{requests:[
+        {repeatCell:{range:{sheetId:sid,startRowIndex:0,endRowIndex:1,startColumnIndex:0,endColumnIndex:6},cell:{userEnteredFormat:{textFormat:{bold:true},backgroundColor:{red:.78,green:.59,blue:.11}}},fields:'userEnteredFormat'}},
+        {updateSheetProperties:{properties:{sheetId:sid,gridProperties:{frozenRowCount:1}},fields:'gridProperties.frozenRowCount'}}
+      ]});
+    }
+    await sheetsReq('POST','/values:batchUpdate?valueInputOption=USER_ENTERED',{data:[{range:`${client.razaoSocial}!A1:F1`,values:[['Data','Operação','Valor (R$)','Banco','Descrição','Comprovante']]}]});
+  }
+  return true;
+}
+
 async function sheetsCreateClientTab(client){
-  if(!S.googleToken)return; // silencioso se não tiver token ainda
-  await sheetsEnsureTab(client.razaoSocial);
+  if(!S.googleToken)return;
+  await sheetsSyncClient(client);
 }
 
 // ─── MENSAGENS ───────────────────────────────────────────────────────────────
@@ -1370,4 +1415,6 @@ S.txDate=todayStr();
 applyTheme();
 const _savedSession=sessionStorage.getItem('sn:session');
 if(_savedSession){try{S.session=JSON.parse(_savedSession);S.page=S.session.isAdmin?'admin':'client';}catch{}}
+const _savedToken=sessionStorage.getItem('sn:googleToken');
+if(_savedToken)S.googleToken=_savedToken;
 loadAll().then(()=>render());
