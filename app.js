@@ -1013,6 +1013,7 @@ function printRelatorio(){
   </div>
   <div class="footer">SN Soluções Contábeis · Sistema de Gestão Financeira</div>
   <br/><button class="btn-print" onclick="window.print()">🖨️ Imprimir</button>
+  <button class="btn-print" onclick="window.close()" style="background:#555;margin-left:10px">← Voltar ao SN Contábil</button>
 </div>
 </body></html>`);
   w.document.close();w.focus();setTimeout(()=>w.print(),400);
