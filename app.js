@@ -119,7 +119,10 @@ const S={
   editTxForm:{},
   messages:[],            // broadcast para todos os clientes [{id,text,sentAt}]
   msgRead:{},             // {clientId: lastReadAt timestamp}
+  clientMessages:{},      // {clientId: [{id,text,sentAt,readByAdmin}]}
   msgText:'',
+  clientMsgText:'',
+  replyTexts:{},      // {clientId: texto sendo digitado}
   adminMsgView:false,
   googleToken:'',     // OAuth token para Sheets API
   sheetsStatus:'',    // '' | 'syncing' | 'ok' | 'error'
@@ -131,9 +134,9 @@ async function fsSet(docId,value){try{await firebase.firestore().collection('sn'
 
 async function loadAll(){
   document.getElementById('app').innerHTML='<div class="center-page" style="color:var(--muted);font-size:14px">⏳ Carregando dados...</div>';
-  const [clients,banks,txMap,descriptions,customOps,customBankIcons,descriptionOps,messages,msgRead]=await Promise.all([
+  const [clients,banks,txMap,descriptions,customOps,customBankIcons,descriptionOps,messages,msgRead,clientMessages]=await Promise.all([
     fsGet('clients'),fsGet('banks'),fsGet('txmap'),fsGet('descriptions'),
-    fsGet('customops'),fsGet('custombankicons'),fsGet('descriptionops'),fsGet('messages'),fsGet('msgread'),
+    fsGet('customops'),fsGet('custombankicons'),fsGet('descriptionops'),fsGet('messages'),fsGet('msgread'),fsGet('clientmessages'),
   ]);
   S.clients=clients||[];
   S.banks=banks||[...DEFAULT_BANKS];
@@ -144,6 +147,7 @@ async function loadAll(){
   S.descriptionOps=descriptionOps||{};
   S.messages=Array.isArray(messages)?messages:[];
   S.msgRead=(msgRead&&typeof msgRead==='object'&&!Array.isArray(msgRead))?msgRead:{};
+  S.clientMessages=(clientMessages&&typeof clientMessages==='object'&&!Array.isArray(clientMessages))?clientMessages:{};
   // Pré-popula descriptionOps a partir dos defaults se vazio
   if(!descriptionOps){
     Object.entries(OP_DESCRIPTIONS_DEFAULT).forEach(([op,descs])=>{
@@ -164,6 +168,7 @@ function saveCustomBankIcons() {return fsSet('custombankicons',S.customBankIcons
 function saveDescriptionOps()  {return fsSet('descriptionops',S.descriptionOps);}
 function saveMessages()        {return fsSet('messages',S.messages);}
 function saveMsgRead()         {return fsSet('msgread',S.msgRead);}
+function saveClientMessages()  {return fsSet('clientmessages',S.clientMessages);}
 
 const uid=()=>Math.random().toString(36).slice(2,10)+Date.now().toString(36);
 const todayStr=()=>new Date().toISOString().slice(0,10);
@@ -270,7 +275,7 @@ function doLogout(){firebase.auth().signOut().catch(()=>{});S.session=null;sessi
 // ─── ADMIN SHELL ──────────────────────────────────────────────────────────────
 function pageAdmin(){
   const nav=[{id:'dashboard',label:'Dashboard'},{id:'clients',label:'Clientes'},{id:'banks',label:'Bancos'},{id:'descriptions',label:'Descrições'},{id:'operacoes',label:'Operações'},{id:'mensagens',label:'Mensagens'}];
-  const sideItems=nav.map(n=>{const isMsgs=n.id==='mensagens';const msgCount=(Array.isArray(S.messages)?S.messages:[]).length;const badge=isMsgs&&msgCount>0?`<span style="background:var(--accent);color:#000;font-size:10px;font-weight:700;border-radius:20px;padding:1px 7px;margin-left:auto">${msgCount}</span>`:'';return`<button class="sidebar-item ${S.adminView===n.id?'active':''}" onclick="setAdminView('${n.id}')" style="justify-content:flex-start">${n.label}${badge}</button>`;}).join('');
+  const unreadCM=totalUnreadClientMsgs();const sideItems=nav.map(n=>{const isMsgs=n.id==='mensagens';const badge=isMsgs&&unreadCM>0?`<span style="background:#ef4444;color:#fff;font-size:10px;font-weight:700;border-radius:50%;width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;margin-left:auto">${unreadCM}</span>`:'';return`<button class="sidebar-item ${S.adminView===n.id?'active':''}" onclick="setAdminView('${n.id}')" style="justify-content:flex-start">${n.label}${badge}</button>`;}).join('');
   const titles={dashboard:['Dashboard','Visão geral consolidada'],clients:['Clientes',`${S.clients.length} cliente${S.clients.length!==1?'s':''} cadastrado${S.clients.length!==1?'s':''}`],'client-detail':[(S.clients.find(x=>x.id===S.viewClientId)?.razaoSocial||'Cliente'),'Painel gerencial do cliente'],banks:['Bancos',`${S.banks.length} bancos cadastrados`],descriptions:['Descrições',`${S.descriptions.length} descrições cadastradas`],operacoes:['Operações',`${OPS.length+S.customOps.length} operações disponíveis`],mensagens:['Mensagens',`${(Array.isArray(S.messages)?S.messages:[]).length} mensagens enviadas`]};
   const [title,sub]=titles[S.adminView]||['Admin',''];
   let content='';
@@ -675,34 +680,108 @@ const msgIcon=(badge='',size='28px')=>`<span style="position:relative;display:in
 // Retorna msgs não lidas do cliente (enviadas após o lastRead dele)
 function unreadMsgs(clientId){
   const lastRead=S.msgRead[clientId]||'';
-  const msgs=Array.isArray(S.messages)?S.messages:[];
-  return msgs.filter(m=>m.sentAt>lastRead);
+  const broadcasts=(Array.isArray(S.messages)?S.messages:[]).filter(m=>m.sentAt>lastRead);
+  const replies=(Array.isArray(S.clientMessages?.[clientId])?S.clientMessages[clientId]:[]).filter(m=>m.fromAdmin&&m.sentAt>lastRead);
+  return [...broadcasts,...replies];
 }
+// Admin: conta mensagens não lidas dos clientes
+function totalUnreadClientMsgs(){
+  if(!S.clientMessages)return 0;
+  return Object.values(S.clientMessages).reduce((acc,msgs)=>acc+(Array.isArray(msgs)?msgs.filter(m=>!m.readByAdmin).length:0),0);
+}
+// Admin: marca mensagens de um cliente como lidas
+async function markClientMsgsRead(clientId){
+  if(!S.clientMessages?.[clientId])return;
+  S.clientMessages[clientId]=S.clientMessages[clientId].map(m=>({...m,readByAdmin:true}));
+  await saveClientMessages();
+}
+
+// Admin: responde para um cliente específico
+async function sendAdminReply(clientId){
+  const text=(q(`#reply-txt-${clientId}`)?.value||'').trim();
+  if(!text){alert('Digite uma resposta.');return;}
+  if(text.length>500){alert('Máximo 500 caracteres.');return;}
+  if(!S.clientMessages)S.clientMessages={};
+  if(!Array.isArray(S.clientMessages[clientId]))S.clientMessages[clientId]=[];
+  S.clientMessages[clientId].push({id:uid(),text,sentAt:new Date().toISOString(),readByAdmin:true,fromAdmin:true});
+  S.replyTexts[clientId]='';
+  render();await saveClientMessages();
+}
+function updateReplyCount(clientId){
+  const el=q(`#reply-count-${clientId}`);
+  const txt=q(`#reply-txt-${clientId}`);
+  if(el&&txt)el.textContent=500-txt.value.length;
+}
+
 // Admin: tela de mensagens universal
 function admMensagens(){
   const remaining=500-(S.msgText?.length||0);
   const msgs=(Array.isArray(S.messages)?S.messages:[]).slice().sort((a,b)=>b.sentAt.localeCompare(a.sentAt));
-  const rows=msgs.map(m=>`<div class="card" style="margin-bottom:10px;border-left:3px solid var(--accent);max-width:640px">
+  const broadcastRows=msgs.map(m=>`<div class="card" style="margin-bottom:8px;border-left:3px solid var(--accent);max-width:640px">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
       <div>
         <div style="font-size:11px;color:var(--muted);margin-bottom:6px">${new Date(m.sentAt).toLocaleString('pt-BR')} · <span style="color:var(--accent)">Todos os clientes</span></div>
         <div style="font-size:14px;color:var(--text);line-height:1.6;white-space:pre-wrap">${esc(m.text)}</div>
       </div>
-      <button onclick="deleteMsg('${m.id}')" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:16px;flex-shrink:0;padding:0" title="Excluir mensagem">×</button>
+      <button onclick="deleteMsg('${m.id}')" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:16px;flex-shrink:0;padding:0">×</button>
     </div>
   </div>`).join('');
+  // Client messages grouped by client
+  const clientMsgCards=S.clients.map(c=>{
+    const msgs=Array.isArray(S.clientMessages?.[c.id])?S.clientMessages[c.id].slice().sort((a,b)=>b.sentAt.localeCompare(a.sentAt)):[];
+    if(!msgs.length)return'';
+    const unread=msgs.filter(m=>!m.readByAdmin).length;
+    const initials=c.razaoSocial.split(' ').slice(0,2).map(w=>w[0]||'').join('').toUpperCase();
+    const msgRows=msgs.map(m=>m.fromAdmin?
+      `<div style="display:flex;justify-content:flex-end;margin-bottom:6px">
+        <div style="background:var(--accent);color:#000;border-radius:12px 12px 0 12px;padding:10px 14px;max-width:90%">
+          <div style="font-size:10px;font-weight:700;margin-bottom:4px;opacity:.7">SN Contábil</div>
+          <div style="font-size:13px;line-height:1.5;white-space:pre-wrap;font-weight:500">${esc(m.text)}</div>
+          <div style="font-size:10px;margin-top:4px;opacity:.6;text-align:right">${new Date(m.sentAt).toLocaleString('pt-BR')}</div>
+        </div>
+      </div>`
+      :`<div style="display:flex;justify-content:flex-start;margin-bottom:6px">
+        <div style="background:var(--card2);border:1px solid var(--border);border-radius:12px 12px 12px 0;padding:10px 14px;max-width:90%">
+          <div style="font-size:13px;color:var(--text);line-height:1.5;white-space:pre-wrap">${esc(m.text)}</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:4px">${new Date(m.sentAt).toLocaleString('pt-BR')}</div>
+        </div>
+      </div>`
+    ).join('');
+    const replyVal=S.replyTexts?.[c.id]||'';
+    const replyBox=`<div style="border-top:1px solid var(--border);padding-top:10px;margin-top:6px">
+      <textarea id="reply-txt-${c.id}" class="inp" rows="2" maxlength="500" style="resize:none;font-size:13px;line-height:1.4" placeholder="Responder para ${esc(c.razaoSocial)}..." oninput="S.replyTexts['${c.id}']=this.value;updateReplyCount('${c.id}')">${esc(replyVal)}</textarea>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
+        <span style="font-size:11px;color:var(--muted)"><span id="reply-count-${c.id}">${500-replyVal.length}</span> caracteres</span>
+        <button class="btn btn-acc btn-sm" onclick="sendAdminReply('${c.id}')">${msgIcon('','14px')} &nbsp;Responder</button>
+      </div>
+    </div>`;
+    return`<details style="margin-bottom:8px;max-width:640px" ${unread?'open':''}>
+      <summary style="cursor:pointer;list-style:none;display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--card);border:1px solid ${unread?'var(--accent)':'var(--border)'};border-radius:10px;user-select:none" onclick="markClientMsgsRead('${c.id}')">
+        <div class="cl-avatar" style="width:32px;height:32px;font-size:12px;flex-shrink:0">${initials}</div>
+        <span style="font-weight:700;font-size:14px;color:var(--text);flex:1">${esc(c.razaoSocial)}</span>
+        ${unread?`<span style="background:#ef4444;color:#fff;font-size:10px;font-weight:700;border-radius:20px;padding:2px 8px">${unread} nova${unread>1?'s':''}</span>`:''}
+        <span style="font-size:11px;color:var(--muted)">${msgs.length} msg${msgs.length>1?'s':''} ▾</span>
+      </summary>
+      <div style="padding:12px 14px;background:var(--card);border:1px solid var(--border);border-top:none;border-radius:0 0 10px 10px">${msgRows}${replyBox}</div>
+    </details>`;
+  }).filter(Boolean).join('');
+  const totalUnread=totalUnreadClientMsgs();
   return`<div style="max-width:700px">
     <div class="card" style="margin-bottom:20px">
-      <div style="color:var(--accent);font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:8px">${msgIcon('','22px')} Nova Mensagem</div>
+      <div style="color:var(--accent);font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:8px">${msgIcon('','22px')} Broadcast — Todos os Clientes</div>
       <div style="font-size:12px;color:var(--muted);margin-bottom:10px;padding:8px;background:var(--card2);border-radius:7px">📢 Esta mensagem será enviada para <strong style="color:var(--text)">todos os clientes</strong>, incluindo os que forem cadastrados futuramente.</div>
       <div class="field">
-        <textarea id="msg-txt" class="inp" rows="5" maxlength="500" style="resize:none;font-size:14px;line-height:1.5" placeholder="Digite sua mensagem..." oninput="S.msgText=this.value;updateMsgCount()">${esc(S.msgText||'')}</textarea>
+        <textarea id="msg-txt" class="inp" rows="4" maxlength="500" style="resize:none;font-size:14px;line-height:1.5" placeholder="Digite sua mensagem..." oninput="S.msgText=this.value;updateMsgCount()">${esc(S.msgText||'')}</textarea>
         <div style="text-align:right;font-size:11px;color:${remaining<50?'var(--danger)':'var(--muted)'};margin-top:4px"><span id="msg-count">${remaining}</span> caracteres restantes</div>
       </div>
       <button class="btn btn-acc" style="padding:12px 24px" onclick="sendBroadcastMsg()">${msgIcon('','18px')} &nbsp;Enviar para todos</button>
     </div>
-    <div class="section-title" style="margin-bottom:12px">Mensagens enviadas (${msgs.length})</div>
-    ${msgs.length?rows:'<div style="color:var(--muted);font-size:13px">Nenhuma mensagem enviada ainda.</div>'}
+    ${msgs.length?`<div class="section-title" style="margin-bottom:12px">Mensagens enviadas (${msgs.length})</div>${broadcastRows}`:''}
+    <div style="display:flex;align-items:center;justify-content:space-between;margin:24px 0 12px">
+      <div class="section-title" style="margin:0">Mensagens dos Clientes</div>
+      ${totalUnread?`<span style="background:#ef4444;color:#fff;font-size:11px;font-weight:700;border-radius:20px;padding:3px 10px">${totalUnread} não lida${totalUnread>1?'s':''}</span>`:'<span style="font-size:12px;color:var(--muted)">Tudo lido ✓</span>'}
+    </div>
+    ${clientMsgCards||'<div style="color:var(--muted);font-size:13px">Nenhum cliente enviou mensagens ainda.</div>'}
   </div>`;
 }
 function updateMsgCount(){const el=document.getElementById('msg-count');if(el)el.textContent=500-(document.getElementById('msg-txt')?.value?.length||0);}
@@ -725,18 +804,63 @@ async function markAllRead(){
   S.msgRead[cid]=new Date().toISOString();
   saveMsgRead();
 }
+// Cliente: envia mensagem para o admin
+async function sendClientMsg(){
+  const text=(q('#client-msg-txt')?.value||'').trim();
+  if(!text){alert('Digite uma mensagem.');return;}
+  if(text.length>500){alert('Máximo 500 caracteres.');return;}
+  const cid=S.session?.clientId;
+  if(!S.clientMessages)S.clientMessages={};
+  if(!Array.isArray(S.clientMessages[cid]))S.clientMessages[cid]=[];
+  S.clientMessages[cid].push({id:uid(),text,sentAt:new Date().toISOString(),readByAdmin:false});
+  S.clientMsgText='';
+  render();await saveClientMessages();
+}
+function updateClientMsgCount(){const el=q('#client-msg-count');if(el)el.textContent=500-(q('#client-msg-txt')?.value?.length||0);}
+
 // Cliente: tela de mensagens
 function screenMensagens(){
   const cid=S.session?.clientId;
-  const msgs=(Array.isArray(S.messages)?S.messages:[]).slice().sort((a,b)=>b.sentAt.localeCompare(a.sentAt));
+  const broadcastMsgs=(Array.isArray(S.messages)?S.messages:[]).slice().sort((a,b)=>b.sentAt.localeCompare(a.sentAt));
+  const myMsgs=Array.isArray(S.clientMessages?.[cid])?S.clientMessages[cid].slice().sort((a,b)=>b.sentAt.localeCompare(a.sentAt)):[];
   markAllRead();
-  const rows=msgs.map(m=>`<div class="card" style="margin-bottom:10px;border-left:3px solid var(--accent)">
-    <div style="font-size:11px;color:var(--muted);margin-bottom:8px">${new Date(m.sentAt).toLocaleString('pt-BR')}</div>
+  const remaining=500-(S.clientMsgText?.length||0);
+  const broadcastRows=broadcastMsgs.map(m=>`<div class="card" style="margin-bottom:8px;border-left:3px solid var(--accent)">
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+      <span style="font-size:11px;font-weight:600;color:var(--accent)">SN Contábil</span>
+      <span style="font-size:11px;color:var(--muted)">· ${new Date(m.sentAt).toLocaleString('pt-BR')}</span>
+    </div>
     <div style="font-size:14px;color:var(--text);line-height:1.6;white-space:pre-wrap">${esc(m.text)}</div>
   </div>`).join('');
+  const myRows=myMsgs.map(m=>m.fromAdmin?
+    `<div style="display:flex;justify-content:flex-start;margin-bottom:8px;align-items:flex-end;gap:8px">
+      <div style="width:28px;height:28px;border-radius:50%;background:rgba(200,150,28,.15);border:1.5px solid var(--accent);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--accent);flex-shrink:0">SN</div>
+      <div style="background:var(--card2);border:1px solid var(--border);border-radius:12px 12px 12px 0;padding:10px 14px;max-width:85%">
+        <div style="font-size:10px;font-weight:700;color:var(--accent);margin-bottom:4px">SN Contábil</div>
+        <div style="font-size:13px;color:var(--text);line-height:1.5;white-space:pre-wrap">${esc(m.text)}</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:4px">${new Date(m.sentAt).toLocaleString('pt-BR')}</div>
+      </div>
+    </div>`
+    :`<div style="display:flex;justify-content:flex-end;margin-bottom:8px">
+      <div style="background:var(--accent);color:#000;border-radius:12px 12px 0 12px;padding:10px 14px;max-width:85%">
+        <div style="font-size:13px;line-height:1.5;font-weight:500;white-space:pre-wrap">${esc(m.text)}</div>
+        <div style="font-size:10px;margin-top:4px;opacity:.7;text-align:right">${new Date(m.sentAt).toLocaleString('pt-BR')}</div>
+      </div>
+    </div>`
+  ).join('');
   return`<div class="screen">
     <h3 style="color:var(--text);margin-bottom:16px;font-size:17px">Mensagens</h3>
-    ${msgs.length?rows:'<div class="empty" style="padding-top:60px"><div style="font-size:48px;margin-bottom:12px">💬</div><div style="color:var(--muted);font-size:14px">Nenhuma mensagem ainda.</div></div>'}
+    ${broadcastMsgs.length===0&&myMsgs.length===0?`<div class="empty" style="padding-top:40px"><div style="font-size:48px;margin-bottom:12px">💬</div><div style="color:var(--muted);font-size:14px">Nenhuma mensagem ainda.</div></div>`:''}
+    ${broadcastMsgs.length?`<div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Da SN Contábil</div>${broadcastRows}`:''}
+    ${myMsgs.length?`<div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:16px 0 8px">Suas mensagens</div>${myRows}`:''}
+    <div class="card" style="margin-top:20px;padding:14px">
+      <div style="font-size:12px;font-weight:600;color:var(--accent);margin-bottom:10px">${msgIcon('','18px')} &nbsp;Enviar mensagem para a SN</div>
+      <textarea id="client-msg-txt" class="inp" rows="3" maxlength="500" style="resize:none;font-size:14px;line-height:1.5" placeholder="Dúvida, solicitação ou recado..." oninput="S.clientMsgText=this.value;updateClientMsgCount()">${esc(S.clientMsgText||'')}</textarea>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
+        <span style="font-size:11px;color:${remaining<50?'var(--danger)':'var(--muted)'}"><span id="client-msg-count">${remaining}</span> caracteres</span>
+        <button class="btn btn-acc" style="padding:8px 20px" onclick="sendClientMsg()">${msgIcon('','16px')} &nbsp;Enviar</button>
+      </div>
+    </div>
   </div>`;
 }
 
@@ -1080,7 +1204,7 @@ function updateBancoPreview(sel){S._bprev=sel.value;sel.classList.remove('empty'
 async function saveTx(){
   const valor=parseFloat(q('#f-valor')?.value||0),desc=q('#f-desc')?.value.trim()||'',banco=q('#f-banco')?.value||'';
   if(!valor||valor<=0){alert('Informe um valor válido.');return;}
-  const validDescs=getDescriptionsForOp(S.selectedOp);if(!desc){alert('Selecione uma descrição.');return;}if(!validDescs.includes(desc)){alert('Selecione uma descrição válida.');return;}
+  const validDescs=getDescriptionsForOp(S.selectedOp);if(!desc){alert('Selecione uma descrição.');return;}if(!validDescs.includes(desc)){alert('Selecione uma descrição válida da lista.');return;}
   if(!banco){alert('Selecione o banco.');return;}
   const cid=S.session.clientId;
   const tx={id:uid(),date:q('#f-date')?.value||todayStr(),operation:S.selectedOp,valor,descricao:desc,banco,complemento:q('#f-comp')?.value||'',responsavel:q('#f-resp')?.value||'',comprovante:S.comprovante,createdAt:new Date().toISOString()};
