@@ -987,14 +987,18 @@ function screenNovo(){
     <div class="field"><label class="label">Valor *</label><div class="inp-icon"><span class="icon-left">R$</span><input id="f-valor" type="number" min="0" step="0.01" class="inp" placeholder="0,00" value="${S.txForm?.valor||''}"/></div></div>
     <div class="field"><label class="label">Descrição *</label>
       <div style="position:relative">
-        <input id="f-desc" class="inp" placeholder="Digite para buscar ou escreva livremente..." value="${esc(S.txForm?.desc||S.descQuery||'')}" autocomplete="off"
-          oninput="S.descQuery=this.value;const d=document.getElementById('desc-suggestions');if(d)d.style.display=this.value.length>0?'block':'none';filterDescSuggestions(this.value)"
-          onfocus="filterDescSuggestions(this.value)"
-          onkeydown="handleDescKey(event)"/>
+        <input id="f-desc" class="inp" placeholder="Digite para filtrar..." value="${esc(S.txForm?.desc||S.descQuery||'')}" autocomplete="off" readonly
+          style="cursor:pointer;background:var(--inp-bg)"
+          onfocus="this.removeAttribute('readonly');filterDescSuggestions(this.value);const d=document.getElementById('desc-suggestions');if(d)d.style.display='block'"
+          oninput="S.descQuery=this.value;filterDescSuggestions(this.value)"
+          onkeydown="handleDescKey(event)"
+          onblur="setTimeout(()=>{const b=document.getElementById('desc-suggestions');if(b)b.style.display='none';validateDesc();},200)"/>
+        ${S.txForm?.desc||S.descQuery?'':'<span style="position:absolute;right:10px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:12px;pointer-events:none">▼</span>'}
         <div id="desc-suggestions" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:50;background:var(--card);border:1px solid var(--accent);border-top:none;border-radius:0 0 8px 8px;max-height:200px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,.3)">
-          ${filteredDescs.map((d,i)=>`<div class="desc-sugg-item" data-val="${esc(d)}" onclick="pickDesc('${esc(d)}')" style="padding:10px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border);color:var(--text)" onmouseover="this.style.background='rgba(200,150,28,.12)'" onmouseout="this.style.background=''">${esc(d)}</div>`).join('')}
+          ${filteredDescs.length?filteredDescs.map(d=>`<div class="desc-sugg-item" data-val="${esc(d)}" onclick="pickDesc('${esc(d)}')" style="padding:10px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border);color:var(--text)" onmouseover="this.style.background='rgba(200,150,28,.12)'" onmouseout="this.style.background=''">${highlightMatch(d,S.descQuery||'')}</div>`).join(''):'<div style="padding:12px 14px;font-size:13px;color:var(--muted)">Nenhuma descrição encontrada.</div>'}
         </div>
       </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">Selecione uma das descrições cadastradas</div>
     </div>
     <div class="field"><label class="label">Comprovante</label>
       <div class="comp-btn ${S.uploadingComp?'has-file':S.comprovante?'has-file':''}" onclick="${S.uploadingComp?'':"q('#f-file').click()"}" style="${S.uploadingComp?'cursor:wait;opacity:.7':''}">
@@ -1045,9 +1049,21 @@ function highlightMatch(text,query){
   return esc(text.slice(0,idx))+'<strong style="color:var(--accent)">'+esc(text.slice(idx,idx+query.length))+'</strong>'+esc(text.slice(idx+query.length));
 }
 function pickDesc(val){
-  const inp=q('#f-desc');if(inp){inp.value=val;}
+  const inp=q('#f-desc');
+  if(inp){inp.value=val;inp.setAttribute('readonly','true');}
   S.descQuery=val;
+  if(S.txForm)S.txForm.desc=val;
   const box=document.getElementById('desc-suggestions');if(box)box.style.display='none';
+}
+function validateDesc(){
+  const inp=q('#f-desc');if(!inp)return;
+  const val=inp.value.trim();
+  const descs=getDescriptionsForOp(S.selectedOp);
+  if(val&&!descs.includes(val)){
+    // valor digitado não é uma descrição válida — limpa
+    inp.value='';S.descQuery='';if(S.txForm)S.txForm.desc='';
+    inp.setAttribute('readonly','true');
+  }
 }
 function handleDescKey(e){
   const box=document.getElementById('desc-suggestions');if(!box||box.style.display==='none')return;
@@ -1064,7 +1080,7 @@ function updateBancoPreview(sel){S._bprev=sel.value;sel.classList.remove('empty'
 async function saveTx(){
   const valor=parseFloat(q('#f-valor')?.value||0),desc=q('#f-desc')?.value.trim()||'',banco=q('#f-banco')?.value||'';
   if(!valor||valor<=0){alert('Informe um valor válido.');return;}
-  if(!desc){alert('Preencha a descrição.');return;}
+  const validDescs=getDescriptionsForOp(S.selectedOp);if(!desc){alert('Selecione uma descrição.');return;}if(!validDescs.includes(desc)){alert('Selecione uma descrição válida.');return;}
   if(!banco){alert('Selecione o banco.');return;}
   const cid=S.session.clientId;
   const tx={id:uid(),date:q('#f-date')?.value||todayStr(),operation:S.selectedOp,valor,descricao:desc,banco,complemento:q('#f-comp')?.value||'',responsavel:q('#f-resp')?.value||'',comprovante:S.comprovante,createdAt:new Date().toISOString()};
