@@ -131,17 +131,47 @@ const S={
 
 // ─── FIRESTORE ────────────────────────────────────────────────────────────────
 async function fsGet(docId){try{const snap=await firebase.firestore().collection('sn').doc(docId).get();return snap.exists?snap.data().value:null;}catch(e){console.error('fsGet',e);return null;}}
-async function fsSet(docId,value){try{await firebase.firestore().collection('sn').doc(docId).set({value});}catch(e){console.error('fsSet',e);}}
+async function fsSet(docId,value){try{await firebase.firestore().collection('sn').doc(docId).set({value});}catch(e){console.error('fsSet error',docId,e);throw e;}}
+// Por cliente: salva lançamentos num documento separado para evitar limite de 1MB
+async function fsGetTx(clientId){try{const snap=await firebase.firestore().collection('sntx').doc(clientId).get();return snap.exists?snap.data().txs:null;}catch(e){console.error('fsGetTx',e);return null;}}
+async function fsSetTx(clientId,txs){try{await firebase.firestore().collection('sntx').doc(clientId).set({txs});}catch(e){console.error('fsSetTx error',clientId,e);throw e;}}
 
 async function loadAll(){
   document.getElementById('app').innerHTML='<div class="center-page" style="color:var(--muted);font-size:14px">⏳ Carregando dados...</div>';
-  const [clients,banks,txMap,descriptions,customOps,customBankIcons,descriptionOps,messages,msgRead,clientMessages]=await Promise.all([
-    fsGet('clients'),fsGet('banks'),fsGet('txmap'),fsGet('descriptions'),
+  const [clients,banks,descriptions,customOps,customBankIcons,descriptionOps,messages,msgRead,clientMessages]=await Promise.all([
+    fsGet('clients'),fsGet('banks'),fsGet('descriptions'),
     fsGet('customops'),fsGet('custombankicons'),fsGet('descriptionops'),fsGet('messages'),fsGet('msgread'),fsGet('clientmessages'),
   ]);
   S.clients=clients||[];
   S.banks=banks||[...DEFAULT_BANKS];
-  S.txMap=txMap||{};
+  // Carrega lançamentos por cliente (documento separado por cliente)
+  const txResults=await Promise.all((S.clients||[]).map(c=>fsGetTx(c.id)));
+  S.txMap={};
+  (S.clients||[]).forEach((c,i)=>{
+    if(txResults[i]!==null&&txResults[i]!==undefined){
+      S.txMap[c.id]=txResults[i];
+    } else {
+      // fallback: tenta ler do txmap legado
+      S.txMap[c.id]=[];
+    }
+  });
+  // Migração única: se ainda existe o txmap legado, migra para documentos individuais
+  const legacyTxMap=await fsGet('txmap');
+  if(legacyTxMap&&typeof legacyTxMap==='object'&&!Array.isArray(legacyTxMap)){
+    let migrated=false;
+    for(const [cid,txs] of Object.entries(legacyTxMap)){
+      if(Array.isArray(txs)&&txs.length>0&&(!S.txMap[cid]||S.txMap[cid].length===0)){
+        S.txMap[cid]=txs;
+        await fsSetTx(cid,txs);
+        migrated=true;
+      }
+    }
+    if(migrated){
+      // Remove o txmap legado após migração
+      try{await firebase.firestore().collection('sn').doc('txmap').delete();}catch{}
+      console.log('[SN] Migração txmap → sntx concluída');
+    }
+  }
   S.descriptions=descriptions||[...DEFAULT_DESCRIPTIONS];
   S.customOps=customOps||[];
   S.customBankIcons=customBankIcons||{};
@@ -162,7 +192,17 @@ async function loadAll(){
 }
 function saveClients()         {return fsSet('clients',S.clients);}
 function saveBanks()           {return fsSet('banks',S.banks);}
-function saveTxMap()           {return fsSet('txmap',S.txMap);}
+async function saveTxMap(clientId){
+  // Salva apenas o cliente específico (evita sobrescrever outros clientes)
+  if(clientId){
+    try{
+      await fsSetTx(clientId,S.txMap[clientId]||[]);
+    }catch(e){
+      console.error('Erro ao salvar lançamentos',e);
+      alert('⚠️ Erro ao salvar o lançamento. Verifique sua conexão e tente novamente.');
+    }
+  }
+}
 function saveDescriptions()    {return fsSet('descriptions',S.descriptions);}
 function saveCustomOps()       {return fsSet('customops',S.customOps);}
 function saveCustomBankIcons() {return fsSet('custombankicons',S.customBankIcons);}
@@ -361,7 +401,7 @@ function saveClientForm(){
   sheetsCreateClientTab(newClient);}
   saveClients();S.showClientForm=false;S.editClientId=null;render();
 }
-function deleteClient(id){if(!confirm('Remover este cliente e todos os seus dados?'))return;S.clients=S.clients.filter(c=>c.id!==id);delete S.txMap[id];saveClients();saveTxMap();render();}
+function deleteClient(id){if(!confirm('Remover este cliente e todos os seus dados?'))return;S.clients=S.clients.filter(c=>c.id!==id);delete S.txMap[id];saveClients();try{firebase.firestore().collection('sntx').doc(id).delete();}catch{}render();}
 function resetClientPwd(id){const c=S.clients.find(x=>x.id===id);if(!c||!confirm(`Resetar senha de ${c.razaoSocial}?`))return;S.clients=S.clients.map(x=>x.id===id?{...x,password:'12345',mustChangePwd:true}:x);saveClients();render();}
 
 // ─── CLIENT DETAIL (admin) ────────────────────────────────────────────────────
@@ -1264,7 +1304,7 @@ async function saveTx(){
   if(!S.txMap[cid])S.txMap[cid]=[];
   S.txMap[cid].unshift(tx);
   S.selectedOp=null;S.comprovante='';S.txForm={};S._bprev='';S.toast=true;
-  render();await saveTxMap();setTimeout(()=>{S.toast=false;render();},2500);
+  render();await saveTxMap(cid);setTimeout(()=>{S.toast=false;render();},2500);
 }
 
 // ─── EDITAR LANÇAMENTO ────────────────────────────────────────────────────────
@@ -1290,7 +1330,7 @@ async function saveEditTx(){
   const cid=S.session.clientId;
   S.txMap[cid]=(S.txMap[cid]||[]).map(t=>t.id===S.editTxId?{...t,valor,descricao:desc,banco,date,complemento:comp,responsavel:resp,editedAt:new Date().toISOString()}:t);
   S.editTxId=null;S.editTxForm={};
-  render();await saveTxMap();
+  render();await saveTxMap(cid);
 }
 function renderEditOverlay(){
   const cid=S.session.clientId;
@@ -1344,7 +1384,7 @@ function screenLista(){
 function setFilter(k,v){S.filters[k]=v;render();}
 function clearFilters(){S.filters={startDate:'',endDate:'',operation:'',banco:'',minVal:'',maxVal:'',busca:''};render();}
 function toggleFilter(){S.filterOpen=!S.filterOpen;render();}
-function deleteTx(id){if(!confirm('Excluir este lançamento?'))return;const cid=S.session.clientId;S.txMap[cid]=(S.txMap[cid]||[]).filter(t=>t.id!==id);saveTxMap();render();}
+function deleteTx(id){if(!confirm('Excluir este lançamento?'))return;const cid=S.session.clientId;S.txMap[cid]=(S.txMap[cid]||[]).filter(t=>t.id!==id);saveTxMap(cid);render();}
 
 // ─── HISTÓRICO ────────────────────────────────────────────────────────────────
 function screenHistorico(){
