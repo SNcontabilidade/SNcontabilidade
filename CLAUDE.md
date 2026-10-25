@@ -99,15 +99,16 @@ index.html ainda registra o service worker (sw.js) e faz o recarregamento autom�
 |---|---|
 | Repositório | `https://github.com/SNcontabilidade/SNcontabilidade` (público), branch **`main`** |
 | Hospedagem | **GitHub Pages**, servido da `main` — **publicar na `main` = produção em poucos minutos** |
-| Projeto Firebase | `sncontabilidade-81091` (config no `<script>` inline do `index.html` e do `admin.html` — **duplicada, alterar os dois**) |
-| Cloudinary | cloud `dk10wezy9`, upload preset sem assinatura (`o5v89u2z`): logos, ícones de banco/operação e **comprovantes** |
+| Projeto Firebase | projeto do escritório (config no `<script>` inline do `index.html` e do `admin.html` — **duplicada, alterar os dois**; os identificadores ficam só no código) |
+| Cloudinary | conta do escritório, upload sem assinatura (parâmetros em `app.js`): logos, ícones de banco/operação e **comprovantes** |
 | Google Sheets | planilha `SPREADSHEET_ID` (constante em `app.js`); escrita via API v4 com o token OAuth do login Google do admin |
 | Conta admin | constante `ADMIN_EMAIL` em `app.js` — única conta aceita no login Google |
 | SheetJS | `xlsx@0.18.5` via jsDelivr, **carregado sob demanda** (`loadSheetJS`): ao exportar Excel e ao ler planilha no DE-PARA |
 | pdf.js | `pdf.js@3.11.174` via cdnjs, **só no DE-PARA e só ao enviar um PDF** (`dpCarregarPdfJs`) |
 
-Não há `.env`: **tudo é constante no código** (chaves públicas de cliente). Quem protege os dados são as **regras do
-Firestore** (não versionadas aqui — o console do Firebase é a fonte da verdade).
+Não há `.env`: **tudo é constante no código** (chaves públicas de cliente). A proteção dos dados é feita **no console do
+Firebase** (regras do Firestore, fora do repositório). **Este repositório é público:** não registre aqui chaves, IDs de
+contas, senhas (nem padrão), regras do banco, nem detalhes de falhas de segurança — o plano de segurança fica fora do Git.
 
 ## 4. Modelo de dados (Firestore)
 
@@ -131,7 +132,7 @@ Duas coleções. **Não há migrations**; documento antigo precisa continuar abr
 | `depara_c_<id>` | **DE-PARA**: configuração de um cliente do DE-PARA (ver abaixo). Um documento por cliente |
 
 **Cliente** (`clients[]`): `id`, `razaoSocial`, `cnpj`, `email`, `username` (login, sem espaços, único sem distinção de
-caixa), `password` (**texto puro**), `mustChangePwd`, `createdAt`, `appVersion` e `lastLogin` (gravados a cada login).
+caixa), `password`, `mustChangePwd`, `createdAt`, `appVersion` e `lastLogin` (gravados a cada login).
 
 **Operação personalizada** (`customops[]`): `{ id:'op_<uid>', label, color, iconUrl, createdAt }` — ícone obrigatório.
 
@@ -190,14 +191,14 @@ exportação (`exportOpen`) e Sheets (`googleToken`, `sheetsStatus`, `syncProgre
 
 ## 6. Autenticação e segurança
 
-- **Cliente:** `doLogin` compara `username` (sem caixa) e `password` **em texto puro** contra `S.clients` carregado do
-  Firestore. Senha inicial de todo cliente novo: **`12345`** com `mustChangePwd:true` → tela "Primeiro Acesso"
-  (`pageChangePwd`), mínimo 6 caracteres. "Reset senha" (admin) volta para `12345`.
+- **Cliente:** `doLogin` confere `username` (sem caixa) e senha contra os clientes carregados do Firestore. Cliente novo
+  entra com uma senha inicial e `mustChangePwd:true` → tela "Primeiro Acesso" (`pageChangePwd`), mínimo 6 caracteres;
+  "Reset senha" (admin) volta à senha inicial.
 - **Admin:** `signInWithPopup` Google; só entra se `email === ADMIN_EMAIL`, senão faz `signOut`. Pede o escopo
   `spreadsheets` para o Sheets.
-- **A validação é toda no navegador.** Quem de fato protege os dados são as regras do Firestore (não estão neste
-  repositório). **Senha de cliente em texto puro dentro do documento `clients`** é um risco conhecido (ver
-  [Pendências](#13-pendências-e-armadilhas-conhecidas)).
+- **A validação de acesso do cliente acontece no navegador**, então a proteção real dos dados depende das regras do
+  Firestore, configuradas no console (fora do repositório). A revisão de segurança está em andamento e seu plano é
+  mantido **fora do repositório público** (ver [Pendências](#13-pendências-e-armadilhas-conhecidas), item 3).
 - **Escape:** texto digitado vindo do Firestore deve passar por `esc()` antes de virar `innerHTML`. Mantenha.
 - `confirm()`/`alert()` são usados (remoção de cliente/lançamento, validações). Funcionam no site; **não** funcionam
   dentro de `iframe` com `sandbox` (ex.: Google Sites).
@@ -559,8 +560,8 @@ Confirmadas no código em 24/10/2026. Nenhuma foi alterada por não ter sido ped
    somam. O mesmo cliente mostra saldos diferentes em telas diferentes.
 2. **Gráficos e relatório do Painel ignoram o filtro de meses** (usam `clientPeriod`, sempre vazio) — mostram tudo,
    enquanto os cards respeitam a seleção.
-3. **Senha em texto puro** no documento `clients`, e login conferido no navegador. Migrar para Firebase Auth (ou
-   guardar hash no servidor) é o caminho; hoje depende exclusivamente das regras do Firestore.
+3. **Segurança de acesso e de dados — em revisão.** O plano de correção (etapas, riscos e compatibilidade com o app dos
+   clientes) é mantido **fora do repositório público**, de propósito. Não documente aqui detalhes de falhas.
 4. **Sheets** não leva status/vencimento/parcela e grava valor sem sinal.
 5. **Total Lançamentos** conta cada parcela/mês como um lançamento.
 6. **Concorrência:** gravar o array inteiro do cliente; edição simultânea = última grava.
@@ -572,8 +573,8 @@ Confirmadas no código em 24/10/2026. Nenhuma foi alterada por não ter sido ped
 12. **`alert`/`confirm`** não funcionam em `iframe` com sandbox.
 13. **DE-PARA — não validado com o Contmatic real.** O layout do `.txt` (`data;débito;crédito;valor;histórico`) foi
     herdado do conversor antigo; não houve importação de teste no sistema. Também não foram testados com arquivo real:
-    leitura de **PDF**, gravação no **Firestore real** (as regras do console precisam aceitar escrita em `sn/depara_*`,
-    como já aceitam em `sn/clients`) e o uso em **celular**.
+    leitura de **PDF**, gravação no **Firestore real** (as regras do console precisam permitir a escrita do admin nos
+    documentos do DE-PARA) e o uso em **celular**.
 14. **DE-PARA — não valida a conta contra o plano de contas** do cliente: um número digitado errado é aceito. Importar o
     plano de contas e avisar conta inexistente é o próximo passo natural.
 15. **DE-PARA — PDF escaneado (imagem) não é lido.** O leitor (pdf.js) só pega texto selecionável: um PDF de imagem — como o
@@ -593,6 +594,19 @@ Confirmadas no código em 24/10/2026. Nenhuma foi alterada por não ter sido ped
 
 > Uma entrada por mudança, **a mais recente no topo**. Formato: data · versão — pedido, feito, decisões e porquês,
 > validação, pendências.
+
+### 2026-10-25 · v1.1.0 (versão **não** subida) — CLAUDE.md sem dados sensíveis
+
+**Pedido:** o repositório é público; o dono pediu para tirar deste arquivo qualquer dado vulnerável, chave exposta ou detalhe
+de falha, e elaborar (fora do Git) um plano para proteger os dados dos clientes sem tirar o acesso nem a funcionalidade.
+**Feito:** removidos identificadores de contas externas (projeto Firebase, conta e preset do Cloudinary), a senha inicial
+padrão, a descrição de como o acesso do cliente é conferido e do que as regras do banco não cobrem. Seção 6 e pendência 3
+passaram a dizer apenas que a revisão de segurança está em andamento. Acrescentada a regra de **não registrar segredos nem
+falhas neste arquivo**. **Atenção:** o histórico do Git guarda as versões antigas deste arquivo; os identificadores
+removidos já são públicos no código do site, então não se trata de segredo vazado — mas não os reintroduza.
+Sem mudança de código nem de versão do app.
+
+---
 
 ### 2026-10-25 · v1.1.0 (versão **não** subida) — DE-PARA reconhece mais formatos + nota de confiança; publicado na `main`
 
