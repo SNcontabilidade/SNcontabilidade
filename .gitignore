@@ -1,0 +1,3 @@
+# Backups do banco contêm dados de clientes: NUNCA versionar
+backup-sn_*.json
+*.bak

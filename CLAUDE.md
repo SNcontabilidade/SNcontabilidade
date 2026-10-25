@@ -68,6 +68,9 @@ index.html ainda registra o service worker (sw.js) e faz o recarregamento autom�
 | `depara.css` | Estilo do DE-PARA, tudo prefixado `.dp-` e só com variáveis de tema do app |
 | `testes/depara-core.test.cjs` | Única bateria automatizada do projeto: `node testes/depara-core.test.cjs` (109 conferências do núcleo) |
 | `testes/exemplo-depara.xlsx` | Planilha de exemplo **propositalmente bagunçada** (dados fictícios) para testar o DE-PARA |
+| `backup.js` | **Backup do banco (só admin)**: botão "💾 Backup do banco" na barra lateral que baixa um `.json` com todas as coleções (`BK_COLECOES`). Carregado só pelo `admin.html`; no `app.js` há **1 encaixe** (`bkBotaoHTML` no rodapé da barra). Prefixo `bk*` |
+| `testes/backup.test.cjs` | Testes do backup (`node testes/backup.test.cjs`) |
+| `.gitignore` | Impede versionar `backup-sn_*.json`: o backup contém dados de clientes e **nunca** vai para o Git |
 | `app.js` | Toda a aplicação (constantes, estado, Firestore, login, admin, cliente, relatório, gráficos, init) |
 | `style.css` | Tema escuro/claro por variáveis CSS (`:root` e `body.light`), layout admin (sidebar) e cliente (topbar + bottom-nav) |
 | `sw.js` | Service worker: rede primeiro sem cache HTTP, cai no cache offline; `CACHE_NAME` |
@@ -594,6 +597,25 @@ Confirmadas no código em 24/10/2026. Nenhuma foi alterada por não ter sido ped
 
 > Uma entrada por mudança, **a mais recente no topo**. Formato: data · versão — pedido, feito, decisões e porquês,
 > validação, pendências.
+
+### 2026-10-25 · v1.1.0 (versão **não** subida) — Botão de backup do banco no admin (1º passo da revisão de segurança)
+
+**Pedido:** antes de qualquer mudança na proteção dos dados, ter uma cópia de segurança completa que o admin possa baixar.
+**Feito (branch `seguranca/fase0-backup`):** `backup.js` com o botão **"💾 Backup do banco"** no rodapé da barra lateral do admin.
+Lê as coleções de `BK_COLECOES` (hoje `sn` e `sntx`) e baixa `backup-sn_AAAA-MM-DD_HHMM.json`, com a data, a versão do app, a
+contagem por coleção e todos os documentos por id (Timestamp vira `{__timestamp: ISO}`). O rótulo do botão mostra o resultado
+(contagens e tamanho). `admin.html` carrega o script; `app.js` ganhou um único encaixe.
+**Decisões e porquês:**
+- **Se uma coleção falhar, aborta** e avisa no botão — nunca baixa um backup incompleto como se estivesse bom.
+- **Nada sai do navegador:** o arquivo é gerado aqui e baixado direto.
+- O arquivo contém dados de clientes, então `.gitignore` bloqueia `backup-sn_*.json`. Guarde fora do Git, em local protegido.
+- **Coleção nova exige entrada em `BK_COLECOES`**, senão fica fora do backup.
+- **Ainda não existe "restaurar"** — é um passo à parte, a fazer só se for preciso.
+**Validação:** `node testes/backup.test.cjs` → 14 conferências; `depara-core.test.cjs` → 109; `node --check` limpo. No
+navegador, com Firebase simulado: botão aparece no menu, gera arquivo com as contagens certas, e com falha numa coleção não
+baixa nada e mostra aviso. **Não validado:** com o banco real e login Google (rodar uma vez no Live Server antes de publicar).
+
+---
 
 ### 2026-10-25 · v1.1.0 (versão **não** subida) — CLAUDE.md sem dados sensíveis
 
