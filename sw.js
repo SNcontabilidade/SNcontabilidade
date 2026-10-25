@@ -1,6 +1,6 @@
 // SN Soluções Contábeis – Service Worker
 
-const CACHE_NAME = 'sn-v3';
+const CACHE_NAME = 'sn-v4';
 const BASE = '/SNcontabilidade';
 
 const STATIC_ASSETS = [
@@ -31,12 +31,16 @@ self.addEventListener('activate', event => {
 
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
-  if (url.origin !== self.location.origin) return;
+  if (event.request.method !== 'GET' || url.origin !== self.location.origin) return;
   event.respondWith(
-    fetch(event.request)
+    // Rede primeiro e SEM o cache HTTP do navegador: o app sempre abre na versão publicada.
+    // Sem internet, cai no cache.
+    fetch(event.request, { cache: 'no-store' })
       .then(response => {
-        const clone = response.clone();
-        caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+        if (response.ok) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+        }
         return response;
       })
       .catch(() => caches.match(event.request))

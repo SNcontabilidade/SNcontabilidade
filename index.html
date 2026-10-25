@@ -62,9 +62,25 @@
   <!-- ═══ PWA – Registra Service Worker ══════════════════════════════════════ -->
   <script>
     if ('serviceWorker' in navigator) {
+      // Atualização automática: quando uma versão nova assume o controle, recarrega o app.
+      // Se o cliente estiver no meio de um lançamento/edição, espera ele terminar (não perde o que digitou).
+      const tinhaSW = !!navigator.serviceWorker.controller; // false na 1ª instalação (nada a recarregar)
+      let recarregarQuando = false;
+      const ocupado = () => typeof S !== 'undefined' && !!(S.selectedOp || S.editTxId || S.exportOpen);
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!tinhaSW) return;
+        if (ocupado()) recarregarQuando = true; else location.reload();
+      });
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('/SNcontabilidade/sw.js')
-          .then(reg => console.log('[SW] Registrado:', reg.scope))
+          .then(reg => {
+            console.log('[SW] Registrado:', reg.scope);
+            // ao voltar para o app (ex.: PWA que ficou aberto em segundo plano), procura versão nova
+            document.addEventListener('visibilitychange', () => {
+              if (document.visibilityState === 'visible') reg.update().catch(() => {});
+              if (recarregarQuando && !ocupado()) location.reload();
+            });
+          })
           .catch(err => console.warn('[SW] Falhou:', err));
       });
     }
