@@ -4,6 +4,7 @@
 // Clientes ficam no Firestore, coleção "sn" (a mesma do app — sem regra nova):
 //   sn/depara_index  → { value: [ {id, nome} ] }
 //   sn/depara_c_<id> → { value: { ...config do cliente } }
+// (não há exportar/importar .json: a configuração já fica no Firestore, por cliente)
 // O ARQUIVO enviado nunca sai do navegador: só a configuração (contas, regras, layout) é gravada.
 
 const DP_COR = { data: '#4c8dff', valor: '#19c39a', fornecedor: '#a06bff', historico: '#f5a524', banco: '#22c7d6', tipo: '#ec4899' };
@@ -106,28 +107,6 @@ function dpBaixar(conteudo, nome, tipo) {
   a.href = URL.createObjectURL(blob); a.download = nome; document.body.appendChild(a); a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
 }
-function dpExportarCliente() {
-  if (!dpState.cfg) return;
-  const o = Object.assign({}, dpState.cfg, { apelido: dpNomeAtual() });          // mesmo formato do conversor antigo
-  dpBaixar(JSON.stringify(o, null, 2), 'deparacfg_' + dpNomeAtual().replace(/\s+/g, '') + '.json', 'application/json');
-  dpMsg('cliente', 'Backup de "' + dpNomeAtual() + '" baixado.', 'ok'); dpRenderSec('cliente');
-}
-function dpImportarCliente(input) {
-  const f = input.files[0]; input.value = ''; if (!f) return;
-  const rd = new FileReader();
-  rd.onload = async (ev) => {
-    try {
-      const raw = JSON.parse(ev.target.result); if (!raw || typeof raw !== 'object') throw new Error('formato');
-      let nome = (typeof raw.apelido === 'string' && raw.apelido.trim()) || f.name.replace(/\.json$/i, '').replace(/^deparacfg_/, '') || 'Cliente importado';
-      if (dpState.clientes.some((c) => dpNorm(c.nome) === dpNorm(nome))) nome += ' (importado)';
-      const id = uid(); dpState.clientes.push({ id, nome });
-      await fsSet('depara_c_' + id, dpSerializar(dpNormalizarConfig(raw))); await dpGravarIndice();
-      await dpTrocarCliente(id); dpMsg('cliente', 'Cliente "' + nome + '" importado.', 'ok'); dpRenderSec('cliente');
-    } catch (e) { console.error(e); dpMsg('cliente', 'Não consegui ler esse arquivo. Confirme que é um .json exportado pelo DE-PARA.', 'erro'); dpRenderSec('cliente'); }
-  };
-  rd.readAsText(f);
-}
-
 // ── arquivo ──────────────────────────────────────────────────────────────────
 function dpCarregarPdfJs() {
   if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
@@ -338,8 +317,7 @@ dpSec.cliente = () => {
   return '<div class="dp-cliente-topo"><div><label class="label">Cliente do DE-PARA</label><div class="sel-wrap"><select class="sel" onchange="dpTrocarCliente(this.value)">' + opts + '</select><span class="sel-arr">▼</span></div></div>' +
     '<span id="dp-selo" class="dp-selo dp-selo--' + (dpState.salvo || 'nada') + '">' + ({ salvando: '⏳ salvando…', ok: '☁ salvo no Firebase', erro: '⚠ não consegui salvar — confira a conexão' }[dpState.salvo] || '') + '</span></div>' +
     '<div class="dp-acoes"><button class="btn btn-acc btn-sm" onclick="dpModo(\'novo\')">+ Novo cliente</button>' +
-    (atual ? '<button class="btn btn-ghost btn-sm" onclick="dpModo(\'renomear\')">Renomear</button><button class="btn btn-ghost btn-sm" onclick="dpExportarCliente()">Exportar (.json)</button>' : '') +
-    '<button class="btn btn-ghost btn-sm" onclick="document.getElementById(\'dp-imp\').click()">Importar (.json)</button><input id="dp-imp" type="file" accept=".json" hidden onchange="dpImportarCliente(this)"/>' +
+    (atual ? '<button class="btn btn-ghost btn-sm" onclick="dpModo(\'renomear\')">Renomear</button>' : '') +
     (atual ? '<button class="btn btn-danger btn-sm" onclick="dpExcluirCliente()">Excluir cliente</button>' : '') + '</div>' + edit + dpMsgHtml('cliente') +
     '<p class="dp-dica">Cada cliente guarda, no Firebase: DE-PARA por nome, regras por palavra-chave, contas, formato do arquivo e o último layout de colunas. A planilha em si não é salva.</p>';
 };

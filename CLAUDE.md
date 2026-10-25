@@ -144,8 +144,9 @@ caixa), `password` (**texto puro**), `mustChangePwd`, `createdAt`, `appVersion` 
 (`[{ id, keywords[], banco, natureza, conta }]`, **a ordem é a prioridade**), `layout` (`{ assinatura, linhaCab, mapa,
 aba }`, o último mapeamento de colunas confirmado) e `atualizadoEm`. O DE-PARA por nome é guardado como **lista**, não
 como mapa, de propósito: nome de fornecedor com `.` ou `/` seria problema como chave do Firestore; em memória
-(`cfg.deParaMap`) continua um mapa `{ nome: conta }`. `dpDeserializar` aceita os dois formatos e também o `.json`
-exportado pelo conversor antigo (`conversor_depara.html`). **A planilha enviada nunca é gravada.**
+(`cfg.deParaMap`) continua um mapa `{ nome: conta }`. `dpDeserializar` aceita a lista e também o mapa antigo
+(`deParaMap`), mas **não há tela de exportar/importar `.json`** (foi removida a pedido do dono: a configuração já fica no
+Firestore, por cliente). **A planilha enviada nunca é gravada.**
 
 ### 4.2 Coleção `sntx` — um documento por cliente: `{ txs: [...] }` (via `fsGetTx/fsSetTx`)
 
@@ -391,7 +392,7 @@ funcionalidades, **corrigidas**. Regra de ouro do módulo: **nenhuma linha some 
 como `ok`, `aviso`, `erro` ou `ignorada`, sempre com o motivo e o **número da linha na planilha**. A lógica está em
 `depara-core.js` (pura, testada) e a tela em `depara.js`; mexeu na regra? Mexa **no núcleo** e rode os testes.
 
-**Clientes** (seção 4.1): criar (nome único, sem diferenciar caixa), renomear, excluir (`confirm`), exportar/importar `.json`.
+**Clientes** (seção 4.1): criar (nome único, sem diferenciar caixa), renomear, excluir (`confirm`). Sem exportar/importar `.json`.
 Trocar de cliente **descarta o arquivo carregado** — nunca se gera um arquivo com as regras de outro cliente. A
 configuração é gravada sozinha (700 ms depois da última alteração); o selo "☁ salvo no Firebase" mostra o estado.
 
@@ -543,8 +544,9 @@ Confirmadas no código em 24/10/2026. Nenhuma foi alterada por não ter sido ped
     como já aceitam em `sn/clients`) e o uso em **celular**.
 14. **DE-PARA — não valida a conta contra o plano de contas** do cliente: um número digitado errado é aceito. Importar o
     plano de contas e avisar conta inexistente é o próximo passo natural.
-15. **DE-PARA — o arquivo `conversor_depara.html` antigo** continua existindo fora do projeto; clientes dele só migram pelo
-    "Importar (.json)".
+15. **DE-PARA — os clientes do `conversor_depara.html` antigo não migram:** ele guardava tudo no `localStorage` do navegador e,
+    sem a tela de importar `.json` (removida), é preciso **recadastrar** cada cliente (conta, DE-PARA e regras). O arquivo
+    antigo continua existindo fora do projeto.
 
 ---
 
@@ -591,6 +593,10 @@ confirmar se ela gera para o Contmatic (a Domínio é a parceira citada na tela)
 - **Núcleo puro separado da tela**, no mesmo padrão do módulo de Orçamentos do outro projeto do dono: dá para testar em
   Node e corrigir regra sem abrir o navegador. As seções da tela são re-renderizadas **uma a uma** (`dpRenderSec`), para
   não roubar o foco de quem está digitando.
+- **Sem Exportar/Importar `.json`** (a pedido do dono, depois de revisar a prévia): a configuração já fica no Firestore, por
+  cliente, e voltar ao cliente no mês seguinte traz tudo. Consequência assumida: **clientes do conversor antigo não
+  migram**, é preciso recadastrá-los (pendência 15). O núcleo ainda tolera o formato antigo (`deParaMap`), mas nenhuma
+  tela o usa.
 - **Trava antes de baixar** em vez de simplesmente bloquear: o dono pode precisar gerar com linhas sem conta (vão para a
   conta de não identificados), mas tem de confirmar sabendo quantas são. Toda reanálise desmarca a confirmação.
 - **`APP_VERSION`/`CACHE_NAME` NÃO foram subidos:** a mudança é só do admin; subir a versão faria o painel do admin marcar
