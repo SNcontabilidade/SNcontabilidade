@@ -66,7 +66,7 @@ index.html ainda registra o service worker (sw.js) e faz o recarregamento autom�
 | `depara-core.js` | **DE-PARA, núcleo puro** (sem DOM e sem Firebase): lê data/valor, detecta cabeçalho e colunas, resolve contas, analisa linha a linha e gera o `.txt`. Roda no navegador e no Node (testes). Prefixo `dp*`/`DP_*` |
 | `depara.js` | **DE-PARA, tela do admin**: clientes no Firestore, upload, prévia, mapeamento, regras, geração. Expõe `admDepara()` |
 | `depara.css` | Estilo do DE-PARA, tudo prefixado `.dp-` e só com variáveis de tema do app |
-| `testes/depara-core.test.cjs` | Única bateria automatizada do projeto: `node testes/depara-core.test.cjs` (72 conferências do núcleo) |
+| `testes/depara-core.test.cjs` | Única bateria automatizada do projeto: `node testes/depara-core.test.cjs` (109 conferências do núcleo) |
 | `testes/exemplo-depara.xlsx` | Planilha de exemplo **propositalmente bagunçada** (dados fictícios) para testar o DE-PARA |
 | `app.js` | Toda a aplicação (constantes, estado, Firestore, login, admin, cliente, relatório, gráficos, init) |
 | `style.css` | Tema escuro/claro por variáveis CSS (`:root` e `body.light`), layout admin (sidebar) e cliente (topbar + bottom-nav) |
@@ -402,15 +402,31 @@ posição do texto e há o ajuste "distância mínima entre colunas", 4 a 80, pa
 um dia). Planilha com várias abas: escolhe-se a aba na prévia (abre na primeira que não está vazia).
 
 **Cabeçalho e colunas (detecção automática, sempre conferível).**
-- Cabeçalho = a primeira linha, entre as 40 primeiras, com 2+ células de texto (que não sejam data nem valor) e, nas 5
-  seguintes, alguma data. Sem achar: a linha 1 vira cabeçalho, ou "sem cabeçalho" se a linha 1 já tem data.
-- Colunas, nesta ordem: Data, Valor, Histórico, Fornecedor, Banco, Tipo — pontuadas pelo **conteúdo** (parte de células que
-  são data, que são número, tamanho médio do texto, quantos valores diferentes) somado à **dica do título** (ex.: "Vlr",
-  "Favorecido"). Banco e Tipo só entram se o título ajudar. Com um único campo de texto, ele serve de fornecedor **e** de
-  histórico. A tela avisa "✨ detectadas automaticamente — confira".
-- **Layout salvo:** a assinatura é a lista dos títulos do cabeçalho (sem caixa/acento). Se o arquivo seguinte do cliente
-  tiver a mesma assinatura, o mapeamento salvo é reaproveitado ("✔ layout reconhecido"). O layout é salvo quando se
-  muda cabeçalho/coluna e ao gerar o arquivo. Obrigatórias: **Data**, **Valor** e **Fornecedor ou Histórico**.
+- Cabeçalho (`dpDetectarCabecalho`) = a primeira linha, **antes da primeira linha com data**, com 2+ células de texto (que
+  não sejam data nem valor) e, nas 5 seguintes, alguma data. Quem decide o padrão é `dpCabPadrao`: o detectado; senão a 1ª
+  linha preenchida, ou **"sem cabeçalho"** (`-1`) se ela já é um lançamento. Texto com número no meio (`mês 5`) **não** é
+  valor (`dpParseValor` exige só dígitos e separadores depois de tirar `R$`, sinal e parênteses).
+- Colunas, nesta ordem: Data, **Valor** (ou o par Saída/Entrada), Histórico, Fornecedor, Banco, Tipo, **Extras** — pontuadas
+  pelo **conteúdo** (parte de células que são data, que são número, tamanho médio, quantos valores diferentes, centavos)
+  somado à **dica do título** (ex.: "Vlr", "Favorecido"). Banco só entra se o título ajudar. Com um único campo de texto,
+  ele serve de fornecedor **e** de histórico. A tela avisa "✨ detectadas automaticamente — confira".
+  - **Candidata a valor** = numérica, não-data, não só zeros, **não "numerinho" de 1–2 dígitos** (ordem/código), não
+    número de documento (`00000040`) e sem "saldo" no título.
+  - **Duas colunas de valor (`mapa.valorEntrada`):** vale o par de colunas que **nunca tem valor na mesma linha** (≥95%) e
+    que, somado, cobre ≥80% das linhas com data (cada uma com ≥15% — juros/multa esparsos não formam par). O **saldo
+    corrido fica de fora** porque está preenchido junto com as duas. Com título (entrada/crédito × saída/débito/pago) ele
+    orienta; **sem título, a coluna da esquerda é a SAÍDA** (a tela mostra nota "média" mandando conferir).
+  - **Tipo/Operação:** vale pelo título **ou** por reconhecer ≥70% dos valores (até 20 valores diferentes) — é assim que a
+    coluna `OPERAÇÕES` da plataforma SN (9 operações) é achada. Só conta valor de até 20 caracteres (descrição livre com
+    "pag…" não é Tipo).
+  - **Extras (`mapa.extras`, até 3):** colunas de texto cujo título lembra complemento/observação/detalhe/memo e que têm
+    ≥5% de preenchimento. O texto delas entra no histórico (`base · extra · extra`), então vale para regras, duplicados
+    e para o `.txt`. Na tela, caixas de seleção em "Onde está cada informação".
+- **Layout salvo:** a assinatura é a lista dos títulos do cabeçalho (sem caixa/acento); **sem cabeçalho** ela é a "forma"
+  das colunas (`forma:9:tdnnttnnt` = quantas colunas e o tipo dominante de cada: d data, n número, t texto). Se o arquivo
+  seguinte do cliente tiver a mesma assinatura, o mapeamento salvo é reaproveitado ("✔ layout reconhecido"). O layout é
+  salvo quando se muda cabeçalho/coluna e ao gerar o arquivo. Obrigatórias: **Data**, **Valor** e **Fornecedor ou
+  Histórico**. Layout salvo antes desta versão (sem `valorEntrada`/`extras`) continua abrindo (`dpMapaVazio` completa).
 
 **Prévia do arquivo (seção 2).** Tabela com letra de coluna e número de linha, selo colorido do campo em cada coluna
 mapeada, linhas **antes** do cabeçalho esmaecidas (são ignoradas), cabeçalho em destaque e datas já mostradas como data.
@@ -426,10 +442,16 @@ Clicar no número de uma linha a define como cabeçalho. Mostra 40 linhas (+50 /
 5. **Valor:** aceita `R$`, milhar e decimal nos dois padrões (`1.234,56` e `1,234.56`; o **último** separador é o decimal),
    `(1.234,56)`, `-1.234,56`, `1.234,56-`. `1.500` isolado vale **mil e quinhentos** (padrão brasileiro). Arredonda em
    centavos. **No arquivo o valor vai sempre positivo.**
-6. **Natureza** (pagamento/recebimento), por prioridade: regra → coluna **Tipo** → **sinal do valor** (só se a opção do
-   cliente estiver ligada: negativo = pagamento, positivo = recebimento) → natureza padrão do cliente. A coluna Tipo
-   reconhece `receb/entrada/crédito/receita/CR/C` como recebimento e `pag/saída/débito/despesa/DB/D` como pagamento; texto
-   que não reconhece vira **aviso** e cai no passo seguinte.
+6. **Natureza** (pagamento/recebimento), por prioridade: regra → **coluna de valor** (modo duas colunas: saída = pagamento,
+   entrada = recebimento; valor nas **duas** na mesma linha = erro; negativo numa delas vira módulo com aviso; se a
+   regra contradiz a coluna, vale a regra e a linha ganha aviso) → coluna **Tipo** → **sinal do valor** (só se a opção
+   do cliente estiver ligada) → natureza padrão do cliente. A coluna Tipo reconhece primeiro a **tabela exata das
+   operações da plataforma SN** — Receita, Aporte, Empréstimo = recebimento; Despesa, Retirada, Estoque, Bens,
+   Investimento = pagamento; **Entre bancos = transferência** — e depois por palavra (`receb/entrada/crédito/receita/CR/C`
+   × `pag/saída/débito/despesa/DB/D`); texto que não reconhece vira **aviso** e cai no passo seguinte. **Transferência
+   entre bancos fica de fora do arquivo** (não dá para saber as duas contas): status `ignorada`, contada em
+   `resumo.transferencias`, mostrada num chip e **conta como problema** (exige confirmar). O resumo guarda
+   `origemNat` (quantas linhas vieram de regra/coluna/Tipo/sinal/padrão), que alimenta a nota de confiança.
 7. **Conta do terceiro**, por prioridade: **regra** (a primeira que casar) → **DE-PARA exato** (nome idêntico, sem
    diferenciar caixa e acento) → **DE-PARA por aproximação** (o nome da linha *contém* o nome cadastrado; só para
    cadastros de **4+ letras** e vence o **mais longo**; gera aviso "conta por aproximação") → **conta para não
@@ -437,7 +459,17 @@ Clicar no número de uma linha a define como cabeçalho. Mostra 40 linhas (+50 /
 8. **Débito/crédito:** pagamento = débito na conta do terceiro e crédito no caixa; recebimento = débito no caixa e
    crédito na conta do terceiro. O DE-PARA por nome usa o texto da coluna Fornecedor (ou o histórico, se não houver).
 9. **Avisos que não impedem a linha:** sem conta, aproximação, tipo não reconhecido, **possível duplicado** (mesma data +
-   valor + histórico de outra linha, ela é mantida), **ano diferente** do "ano do arquivo" do cliente.
+   valor + histórico — já com as colunas extras — de outra linha, ela é mantida), **ano diferente** do "ano do arquivo"
+   do cliente, **data suja** (`´06/04/2026`: o lixo no começo/fim é ignorado e a linha diz de qual texto foi lida) e
+   **linha de total/saldo com data** ("confira se deve entrar" — a linha **entra**; só não entra a de total **sem** data).
+
+**Nota de confiança da leitura (`dpConfianca`, painel na seção 4).** Diz o quanto o sistema tem de certeza de que
+**entendeu o arquivo** — separado das contas que faltam (isso continua nos chips "sem conta"). Por campo: **data**, **valor**
+e **histórico** (alta ≥97%/≥90% de linhas lidas; média ≥85%/≥60%), **natureza** (alta quando vem de regra/coluna/Tipo; média
+quando muitas linhas caem no padrão do cliente ou no sinal) e **colunas** (média quando não há cabeçalho, quando os títulos
+não confirmam a detecção ou quando as duas colunas de valor não têm título claro). **Mais de 10% das linhas com erro rebaixa
+o valor para baixa** (o mapeamento provavelmente está errado). A leitura geral é a **pior** nota entre os campos; `baixa`
+**exige a confirmação** antes de baixar o `.txt` (entra em `dpProblemas`). Cada nota diz o campo e o motivo em texto.
 
 **Regras por palavra-chave.** Escolhe-se um lançamento de exemplo, clicam-se as palavras (ou digita-se uma) e a tela mostra
 **na hora** os lançamentos impactados. A regra casa quando **todas** as palavras aparecem no histórico — **sem diferenciar
@@ -544,7 +576,14 @@ Confirmadas no código em 24/10/2026. Nenhuma foi alterada por não ter sido ped
     como já aceitam em `sn/clients`) e o uso em **celular**.
 14. **DE-PARA — não valida a conta contra o plano de contas** do cliente: um número digitado errado é aceito. Importar o
     plano de contas e avisar conta inexistente é o próximo passo natural.
-15. **DE-PARA — os clientes do `conversor_depara.html` antigo não migram:** ele guardava tudo no `localStorage` do navegador e,
+15. **DE-PARA — PDF escaneado (imagem) não é lido.** O leitor (pdf.js) só pega texto selecionável: um PDF de imagem — como o
+    "fechamento" de condomínio testado — devolve **zero linhas** e a tela recusa com aviso. Precisa de **OCR** (ex.:
+    Tesseract.js, com revisão obrigatória) e talvez de um "modo por linha" para relatórios agrupados por categoria.
+    Também **não** há leitura de Word (`.docx`), CSV ou OFX ainda, nem geração direta do `.txt` a partir dos lançamentos
+    da própria plataforma SN (`sntx`). Nenhum dos três foi pedido para começar.
+16. **DE-PARA — validado com 3 planilhas reais (25/10/2026), mas só no Node.** Detecção, natureza e contagem batem com o
+    esperado em todas; a tela foi conferida só com dados fictícios. Falta o teste com login real e o `.txt` no Contmatic (item 13).
+17. **DE-PARA — os clientes do `conversor_depara.html` antigo não migram:** ele guardava tudo no `localStorage` do navegador e,
     sem a tela de importar `.json` (removida), é preciso **recadastrar** cada cliente (conta, DE-PARA e regras). O arquivo
     antigo continua existindo fora do projeto.
 
@@ -554,6 +593,48 @@ Confirmadas no código em 24/10/2026. Nenhuma foi alterada por não ter sido ped
 
 > Uma entrada por mudança, **a mais recente no topo**. Formato: data · versão — pedido, feito, decisões e porquês,
 > validação, pendências.
+
+### 2026-10-25 · v1.1.0 (versão **não** subida) — DE-PARA reconhece mais formatos + nota de confiança; publicado na `main`
+
+**Pedido:** o dono mandou 4 arquivos reais (2 planilhas de controle, 1 extrato de condomínio em planilha e 1 PDF de
+fechamento) e perguntou se a plataforma consegue **identificar e reconhecer os dados** em formatos muito diferentes. Depois de
+ver o diagnóstico ("vamos aplicar") e de testar, mandou **publicar na `main`**.
+
+**Diagnóstico (núcleo antigo, dados reais):** (a) a planilha no formato da própria plataforma tinha a coluna `OPERAÇÕES` com
+9 valores — acima do limite de 8 — e nenhuma operação era entendida, então **todos os recebimentos saíam como pagamento**;
+(b) o extrato sem cabeçalho tinha **duas colunas de valor** (saída e entrada) e só uma era lida (27 linhas de entrada
+viravam erro), além de uma coluna de saldo e uma de "0"; (c) datas digitadas com acento solto (`´06/04/2026`) eram erro;
+(d) a coluna Complemento não entrava no histórico, gerando 47 falsos "duplicados"; (e) o PDF era imagem escaneada (zero texto).
+
+**Feito (`depara-core.js`, `depara.js`, testes):** duas colunas de valor; operações da plataforma como natureza (com
+"Entre bancos" fora do arquivo); datas sujas com aviso; colunas extras no histórico; arquivo **sem cabeçalho** (`dpCabPadrao`
+e assinatura por "forma"); aviso de total com data; **nota de confiança** por campo na seção 4 (regras completas na 8.11).
+Tela: seletor "Valor — coluna de ENTRADAS", caixas de "colunas extras", painel de confiança, chip de transferências e novas
+etiquetas na prévia. `dpProblemas` passou a contar transferência e leitura de confiança baixa (exigem confirmar).
+
+**Decisões e porquês:**
+- Texto com número no meio (`Pagamento … mês 5`) **não é mais valor**. Antes `dpParseValor` arrancava as letras e devolvia 5;
+  isso fazia a descrição virar "valor" na detecção e sumir do histórico (apareceu no 1º teste da plataforma).
+- Cabeçalho só **antes** da 1ª linha com data: uma linha de total no meio do arquivo era tomada por cabeçalho.
+- Saldo corrido **não** entra no par saída/entrada: ele está preenchido junto com as duas colunas.
+- Coluna de "numerinhos" (1–2 dígitos) nunca é valor: era a coluna de ordem do extrato que ganhava de F/G.
+- Tipo só reconhece valor de até 20 caracteres: descrição livre com "pag…" virava coluna Tipo.
+- Sem título, a coluna da **esquerda é a saída**; a nota de confiança fica "média" e manda conferir.
+
+**Validação:** `node testes/depara-core.test.cjs` → **109 conferências** ok (37 novas, com dados fictícios: data suja, operações,
+layout da plataforma, extrato de 2 colunas sem cabeçalho, duplo erro, total com data, mapa antigo, confiança). Contra as
+**3 planilhas reais** (Node, só contagens): Controle — 131 válidas, 1 erro (valor vazio), 3 datas sujas lidas com aviso;
+plataforma (GTR) — 363 pagamentos / 173 recebimentos pela coluna Operações, 0 erros, confiança alta; extrato (Habitar) —
+saída F, entrada G, 82 pagamentos / 27 recebimentos, 0 erros, saldo ignorado, confiança média (sem título). A tela foi aberta
+no navegador com Firebase simulado e dados fictícios: sem erro de console, painel de confiança e seletor de entradas visíveis.
+
+**Pendências:** PDF escaneado precisa de OCR (item 15); falta teste com login real e `.txt` no Contmatic (itens 13 e 16).
+Os 2 duplicados do extrato e os 45 da plataforma são **avisos** de lançamentos realmente repetidos no mesmo dia.
+
+**Publicação:** merge de `feature/depara` na `main` (somente `admin.html`/DE-PARA mudam o que é carregado; o app do cliente
+não carrega esses arquivos, então **não houve** troca de `APP_VERSION`/`CACHE_NAME`).
+
+---
 
 ### 2026-10-25 · v1.1.0 (versão **não** subida) — DE-PARA: planilha → `.txt` do Contmatic dentro do admin
 

@@ -7,8 +7,8 @@
 // (não há exportar/importar .json: a configuração já fica no Firestore, por cliente)
 // O ARQUIVO enviado nunca sai do navegador: só a configuração (contas, regras, layout) é gravada.
 
-const DP_COR = { data: '#4c8dff', valor: '#19c39a', fornecedor: '#a06bff', historico: '#f5a524', banco: '#22c7d6', tipo: '#ec4899' };
-const DP_ROTULO = { data: 'Data', valor: 'Valor', fornecedor: 'Fornecedor', historico: 'Histórico', banco: 'Banco', tipo: 'Tipo' };
+const DP_COR = { data: '#4c8dff', valor: '#19c39a', valorEntrada: '#84cc16', fornecedor: '#a06bff', historico: '#f5a524', extras: '#fb923c', banco: '#22c7d6', tipo: '#ec4899' };
+const DP_ROTULO = { data: 'Data', valor: 'Valor', valorEntrada: 'Valor entrada', fornecedor: 'Fornecedor', historico: 'Histórico', extras: 'Histórico +', banco: 'Banco', tipo: 'Tipo' };
 const DP_SECOES = ['cliente', 'arquivo', 'previa', 'mapa', 'interp', 'config', 'depara', 'regras', 'gerar'];
 
 const dpState = {
@@ -16,8 +16,9 @@ const dpState = {
   clientes: [], atualId: '', cfg: null, modo: '',            // modo: '' | 'novo' | 'renomear'
   salvo: '', msgs: {},                                        // salvo: '' | 'salvando' | 'ok' | 'erro'
   arq: null,                                                  // { nome, ehPdf, abas:[{nome, linhas}], aba }
-  linhaCab: -1, mapa: { data: '', valor: '', fornecedor: '', historico: '', banco: '', tipo: '' },
-  origemMapa: '',                                             // '' | 'auto' | 'layout' | 'manual'
+  linhaCab: -1, mapa: dpMapaVazio(),
+  conf: null,                                                 // nota de confiança da leitura (dpConfianca)
+  origemMapa: '',                                            // '' | 'auto' | 'layout' | 'manual'
   prevMax: 40, interpMax: 60, soProblemas: false, analise: null, confirmou: false,
   pdfGap: 18, pdfBuf: null,
   filtroDePara: '', soSemConta: false, novoDePara: false,
@@ -64,7 +65,7 @@ function dpAtualizarSelo() {
 }
 
 // ── clientes ─────────────────────────────────────────────────────────────────
-function dpLimparArquivo() { dpState.arq = null; dpState.analise = null; dpState.linhaCab = -1; dpState.origemMapa = ''; dpState.confirmou = false; dpState.pdfBuf = null; dpState.mapa = { data: '', valor: '', fornecedor: '', historico: '', banco: '', tipo: '' }; dpResetRegra(); }
+function dpLimparArquivo() { dpState.arq = null; dpState.analise = null; dpState.linhaCab = -1; dpState.origemMapa = ''; dpState.confirmou = false; dpState.pdfBuf = null; dpState.conf = null; dpState.mapa = dpMapaVazio(); dpResetRegra(); }
 async function dpTrocarCliente(id) {
   dpLimparArquivo(); dpState.modo = '';
   if (!id) { dpState.atualId = ''; dpState.cfg = null; dpRender(); return; }
@@ -156,10 +157,10 @@ async function dpAbrirBytes(buf, nomeArquivo) {
 // escolhe cabeçalho e colunas: layout salvo do cliente (se a planilha for igual) ou detecção automática
 function dpPrepararAba() {
   const linhas = dpLinhas(); dpState.prevMax = 40; dpState.interpMax = 60; dpState.confirmou = false;
-  let cab = dpDetectarCabecalho(linhas); if (cab < 0) cab = (linhas[0] || []).some((c) => dpParseData(c).ok) ? -1 : 0;
+  const cab = dpCabPadrao(linhas);
   const lay = dpState.cfg.layout;
   if (lay && lay.assinatura && lay.assinatura === dpAssinatura(linhas, lay.linhaCab) && lay.mapa) {
-    dpState.linhaCab = lay.linhaCab; dpState.mapa = Object.assign({ data: '', valor: '', fornecedor: '', historico: '', banco: '', tipo: '' }, lay.mapa); dpState.origemMapa = 'layout';
+    dpState.linhaCab = lay.linhaCab; dpState.mapa = Object.assign(dpMapaVazio(), lay.mapa); dpState.mapa.extras = Array.isArray(dpState.mapa.extras) ? dpState.mapa.extras.slice() : []; dpState.origemMapa = 'layout';
   } else {
     dpState.linhaCab = cab; dpState.mapa = dpDetectarColunas(linhas, cab); dpState.origemMapa = 'auto';
   }
@@ -204,15 +205,22 @@ function dpSetMapa(campo, v) {
   dpState.mapa[campo] = v === '' ? '' : Number(v); dpState.origemMapa = 'manual';
   dpSalvarLayout(); dpReanalisar(); dpRenderSec('previa'); dpRenderSec('mapa'); dpRenderSec('interp'); dpRenderSec('depara'); dpRenderSec('regras'); dpRenderSec('gerar');
 }
-function dpDetectarDeNovo() { const l = dpLinhas(); let cab = dpDetectarCabecalho(l); if (cab < 0) cab = 0; dpState.linhaCab = cab; dpState.mapa = dpDetectarColunas(l, cab); dpState.origemMapa = 'auto'; dpReanalisar(); dpRender(); }
+function dpSetExtra(c, on) {
+  const e = dpState.mapa.extras, i = e.indexOf(c);
+  if (on && i < 0) e.push(c); else if (!on && i >= 0) e.splice(i, 1);
+  dpState.origemMapa = 'manual'; dpSalvarLayout(); dpReanalisar();
+  ['previa', 'interp', 'depara', 'regras', 'gerar'].forEach(dpRenderSec);
+}
+function dpDetectarDeNovo() { const l = dpLinhas(); const cab = dpCabPadrao(l); dpState.linhaCab = cab; dpState.mapa = dpDetectarColunas(l, cab); dpState.origemMapa = 'auto'; dpReanalisar(); dpRender(); }
 function dpSalvarLayout() {
   if (!dpState.cfg || !dpTemMapa()) return;
-  dpState.cfg.layout = { assinatura: dpAssinatura(dpLinhas(), dpState.linhaCab), linhaCab: dpState.linhaCab, mapa: Object.assign({}, dpState.mapa), aba: dpState.arq.abas[dpState.arq.aba].nome };
+  dpState.cfg.layout = { assinatura: dpAssinatura(dpLinhas(), dpState.linhaCab), linhaCab: dpState.linhaCab, mapa: Object.assign({}, dpState.mapa, { extras: dpState.mapa.extras.slice() }), aba: dpState.arq.abas[dpState.arq.aba].nome };
   dpSalvarAgendado();
 }
 function dpReanalisar() {
   dpState.confirmou = false;                                  // qualquer mudança que reanalisa exige confirmar de novo antes de baixar
   dpState.analise = dpState.cfg && dpState.arq && dpTemMapa() ? dpAnalisar(dpLinhas(), dpState.linhaCab, dpMapaCompleto(), dpState.cfg) : null;
+  dpState.conf = dpState.analise ? dpConfianca(dpLinhas(), dpState.linhaCab, dpMapaCompleto(), dpState.analise, dpState.cfg) : null;
 }
 function dpAgendarAnalise() {
   clearTimeout(dpTimerAnalise);
@@ -238,7 +246,10 @@ function dpAddDePara() {
 
 // ── regras por palavra-chave ─────────────────────────────────────────────────
 function dpResetRegra() { dpState.regra = { id: null, keywords: [], banco: '', natureza: dpState.cfg ? dpState.cfg.naturezaPadrao : 'PAGAMENTO', conta: '', exemplo: '', filtroEx: '' }; }
-function dpHistDaLinha(r) { const m = dpState.mapa, i = m.historico !== '' ? m.historico : m.fornecedor; return i === '' ? '' : dpTexto(r[i]); }
+function dpHistDaLinha(r) {                                     // igual ao histórico que dpAnalisar monta (base + colunas extras)
+  const m = dpState.mapa, i = m.historico !== '' ? m.historico : m.fornecedor;
+  return [i === '' ? '' : dpTexto(r[i])].concat((m.extras || []).map((c) => dpTexto(r[c]))).filter(Boolean).join(' · ');
+}
 function dpBancoDaLinha(r) { const i = dpState.mapa.banco; return i === '' ? '' : dpTexto(r[i]); }
 function dpDadosRows() { return dpLinhas().slice(dpState.linhaCab + 1).filter((r) => !dpLinhaVazia(r)); }
 function dpImpactados(keywords, banco) {
@@ -282,13 +293,13 @@ function dpFiltrarExemplos(v) { dpState.regra.filtroEx = v; const el = document.
 // ── geração ──────────────────────────────────────────────────────────────────
 function dpProblemas() {
   const a = dpState.analise; if (!a) return 0;
-  return a.resumo.erros + a.resumo.semConta + a.resumo.avisos;
+  return a.resumo.erros + a.resumo.semConta + a.resumo.avisos + a.resumo.transferencias + (dpState.conf && !dpState.conf.pronto ? 1 : 0);   // leitura de confiança baixa também exige conferir
 }
 function dpPodeGerar() {
   const a = dpState.analise;
   if (!a || !a.lancamentos.length) return { ok: false, motivo: 'Nenhum lançamento válido ainda. Confira o mapeamento de colunas.' };
   if (!String(dpState.cfg.contaCaixa || '').trim()) return { ok: false, motivo: 'Informe a conta de caixa/banco padrão (seção "Configurações do cliente").' };
-  if (dpProblemas() > 0 && !dpState.confirmou) return { ok: false, motivo: 'Há linhas com erro, aviso ou sem conta. Revise e marque a confirmação para gerar mesmo assim.', precisaConfirmar: true };
+  if (dpProblemas() > 0 && !dpState.confirmou) return { ok: false, motivo: 'Há linhas com erro, aviso ou sem conta. Revise (e confira a nota de confiança da leitura) e marque a confirmação para gerar mesmo assim.', precisaConfirmar: true };
   return { ok: true };
 }
 function dpGerar() {
@@ -336,12 +347,13 @@ dpSec.previa = () => {
   const a = dpState.arq; if (!a) return '';
   const linhas = dpLinhas(), m = dpState.mapa, cab = dpState.linhaCab;
   const ncols = Math.min(14, Math.max(1, ...linhas.map((r) => (r ? r.length : 0))));
-  const camposDaCol = (c) => Object.keys(m).filter((k) => m[k] === c);
+  const camposDaCol = (c) => Object.keys(DP_COR).filter((k) => (k === 'extras' ? (m.extras || []).includes(c) : m[k] === c));
+  const rot = (k) => (k === 'valor' && m.valorEntrada !== '' ? 'Valor saída' : DP_ROTULO[k]);
   const abas = a.abas.length > 1 ? '<div class="dp-abas">' + a.abas.map((x, i) => '<button class="dp-aba' + (i === a.aba ? ' on' : '') + (x.vazia ? ' dp-aba--vazia' : '') + '" onclick="dpTrocarAba(' + i + ')">' + dpEsc(x.nome) + (x.vazia ? ' (vazia)' : '') + '</button>').join('') + '</div>' : '';
   let th = '<th class="dp-rn"></th>';
   for (let c = 0; c < ncols; c++) {
     const cs = camposDaCol(c);
-    th += '<th><div class="dp-col-l">' + dpColLetra(c) + '</div>' + cs.map((k) => '<span class="dp-tag" style="--c:' + DP_COR[k] + '">' + DP_ROTULO[k] + '</span>').join('') + '</th>';
+    th += '<th><div class="dp-col-l">' + dpColLetra(c) + '</div>' + cs.map((k) => '<span class="dp-tag" style="--c:' + DP_COR[k] + '">' + rot(k) + '</span>').join('') + '</th>';
   }
   const fim = Math.min(linhas.length, dpState.prevMax); let tr = '';
   for (let i = 0; i < fim; i++) {
@@ -357,7 +369,7 @@ dpSec.previa = () => {
   const mais = linhas.length > fim ? '<div class="dp-linha"><span class="dp-dica">Mostrando ' + fim + ' de ' + linhas.length + ' linhas.</span><button class="btn btn-ghost btn-sm" onclick="dpState.prevMax+=50;dpRenderSec(\'previa\')">+ 50 linhas</button><button class="btn btn-ghost btn-sm" onclick="dpState.prevMax=99999;dpRenderSec(\'previa\')">Mostrar todas</button></div>' : '';
   return dpTitulo(2, 'Prévia do arquivo', 'É assim que o arquivo foi lido. Confira se as colunas e o cabeçalho estão certos <b>antes</b> de seguir. Clique no número de uma linha para marcá-la como cabeçalho.') + abas +
     '<div class="dp-tabela-wrap"><table class="dp-tabela dp-previa"><thead><tr>' + th + '</tr></thead><tbody>' + tr + '</tbody></table></div>' + mais +
-    '<div class="dp-legenda">' + Object.keys(DP_COR).map((k) => '<span class="dp-tag" style="--c:' + DP_COR[k] + '">' + DP_ROTULO[k] + '</span>').join('') + '<span class="dp-dica">linhas esmaecidas ficam antes do cabeçalho e são ignoradas</span></div>';
+    '<div class="dp-legenda">' + Object.keys(DP_COR).map((k) => '<span class="dp-tag" style="--c:' + DP_COR[k] + '">' + rot(k) + '</span>').join('') + '<span class="dp-dica">linhas esmaecidas ficam antes do cabeçalho e são ignoradas</span></div>';
 };
 
 dpSec.mapa = () => {
@@ -371,22 +383,32 @@ dpSec.mapa = () => {
   const selo = { layout: '<div class="dp-msg dp-msg--ok">✔ Layout deste cliente reconhecido — o mapeamento do último arquivo foi reaproveitado.</div>', auto: '<div class="dp-msg dp-msg--info">✨ Colunas detectadas automaticamente. <b>Confira</b> na prévia acima antes de seguir.</div>', manual: '' }[dpState.origemMapa] || '';
   return dpTitulo(3, 'Onde está cada informação', 'Indique qual coluna corresponde a cada campo. O mapeamento fica salvo para o próximo arquivo desse cliente.') + selo +
     '<div class="field"><label class="label">Linha do cabeçalho</label><div class="sel-wrap"><select class="sel" onchange="dpSetCab(Number(this.value))">' + opCab + '</select><span class="sel-arr">▼</span></div></div>' +
-    '<div class="dp-grade2">' + campo('data', 'Data', true) + campo('valor', 'Valor', true) + campo('fornecedor', 'Fornecedor / Banco', false, 'Para o DE-PARA por nome. Se vazio, usa o histórico.') + campo('historico', 'Histórico / Descrição', false, 'Para as regras por palavra-chave. Se vazio, usa o fornecedor.') + campo('banco', 'Banco (opcional)', false, 'Só para regras que filtram por banco.') + campo('tipo', 'Tipo — pagamento/recebimento (opcional)', false, 'Ex.: "Pagamento", "Recebimento", "Débito", "Crédito".') + '</div>' +
+    '<div class="dp-grade2">' + campo('data', 'Data', true) + campo('valor', m.valorEntrada !== '' ? 'Valor — coluna de SAÍDAS' : 'Valor', true, m.valorEntrada !== '' ? 'Linhas com valor aqui viram <b>pagamento</b>.' : '') + campo('valorEntrada', 'Valor — coluna de ENTRADAS (opcional)', false, 'Só para extratos com duas colunas de valor (saída e entrada). Linhas com valor aqui viram <b>recebimento</b>. Não escolha a coluna de saldo.') + campo('fornecedor', 'Fornecedor / Banco', false, 'Para o DE-PARA por nome. Se vazio, usa o histórico.') + campo('historico', 'Histórico / Descrição', false, 'Para as regras por palavra-chave. Se vazio, usa o fornecedor.') + campo('banco', 'Banco (opcional)', false, 'Só para regras que filtram por banco.') + campo('tipo', 'Tipo — pagamento/recebimento (opcional)', false, 'Ex.: "Pagamento", "Recebimento", "Débito", "Crédito", ou as operações da plataforma (Receita, Despesa, Aporte, Entre bancos…).') + '</div>' +
+    '<div class="field"><label class="label"><span class="dp-bola" style="background:' + DP_COR.extras + '"></span>Colunas extras no histórico (opcional)</label><div class="dp-chips">' + Array.from({ length: ncols }, (_, c) => ({ c, t: dpTexto(titulos[c]) })).filter((x) => x.c !== m.data && x.c !== m.valor && x.c !== m.valorEntrada && x.c !== m.historico && x.c !== m.fornecedor && x.c !== m.tipo && x.c !== m.banco).map((x) => '<label class="dp-check"><input type="checkbox" ' + ((m.extras || []).includes(x.c) ? 'checked' : '') + ' onchange="dpSetExtra(' + x.c + ',this.checked)"/> ' + dpColLetra(x.c) + (x.t ? ' — ' + dpEsc(x.t.slice(0, 24)) : '') + '</label>').join('') + '</div><div class="dp-dica">O texto dessas colunas é somado ao histórico (ajuda as regras e distingue lançamentos parecidos).</div></div>' +
     '<div class="dp-acoes"><button class="btn btn-ghost btn-sm" onclick="dpDetectarDeNovo()">✨ Detectar automaticamente</button></div>';
 };
 
 const dpChip = (n, rot, cls) => '<span class="dp-chip dp-chip--' + cls + '"><b>' + n + '</b> ' + rot + '</span>';
+// nota de confiança da LEITURA (o que falta cadastrar de conta é outra coisa e aparece nos chips)
+function dpConfHtml() {
+  const f = dpState.conf; if (!f) return '';
+  const rotulo = { alta: 'Leitura com alta confiança', media: 'Leitura com confiança média — confira os pontos abaixo', baixa: 'Leitura com confiança BAIXA — o mapeamento provavelmente está errado' }[f.geral];
+  const nomes = { data: 'Data', valor: 'Valor', historico: 'Histórico', natureza: 'Pagamento/recebimento', colunas: 'Colunas' };
+  const itens = Object.keys(f.campos).map((k) => { const c = f.campos[k]; return '<span class="dp-chip dp-chip--' + { alta: 'ok', media: 'aviso', baixa: 'erro' }[c.nivel] + '"><b>' + nomes[k] + '</b> ' + c.nivel + (c.pct != null ? ' · ' + c.pct + '%' : '') + '</span>'; }).join('');
+  const notas = f.notas.map((n) => '<li>' + dpEsc(n.nota) + '</li>').join('');
+  return '<div class="dp-msg dp-msg--' + { alta: 'ok', media: 'warn', baixa: 'erro' }[f.geral] + '"><b>' + rotulo + '</b></div><div class="dp-chips">' + itens + '</div>' + (notas ? '<ul class="dp-dica">' + notas + '</ul>' : '');
+}
 dpSec.interp = () => {
   const a = dpState.analise;
   if (!dpState.arq) return '';
   if (!a) return dpTitulo(4, 'Como o sistema vai ler', '') + '<div class="dp-msg dp-msg--warn">Escolha ao menos as colunas de <b>Data</b>, <b>Valor</b> e <b>Fornecedor ou Histórico</b> na seção anterior.</div>';
   const s = a.resumo;
-  const chips = dpChip(s.validas, 'lançamentos válidos', 'ok') + (s.erros ? dpChip(s.erros, 'com erro (não vão no arquivo)', 'erro') : '') + (s.ignoradas ? dpChip(s.ignoradas, 'ignoradas (título/total)', 'ign') : '') + (s.semConta ? dpChip(s.semConta, 'sem conta (' + dpEsc(dpState.cfg.contaPadrao) + ')', 'aviso') : '') + (s.duplicados ? dpChip(s.duplicados, 'possíveis duplicados', 'aviso') : '') + (s.anoDiferente ? dpChip(s.anoDiferente, 'de outro ano', 'aviso') : '') + (s.vazias ? dpChip(s.vazias, 'linhas em branco', 'ign') : '');
+  const chips = dpChip(s.validas, 'lançamentos válidos', 'ok') + (s.erros ? dpChip(s.erros, 'com erro (não vão no arquivo)', 'erro') : '') + (s.ignoradas ? dpChip(s.ignoradas, 'ignoradas (título/total)', 'ign') : '') + (s.semConta ? dpChip(s.semConta, 'sem conta (' + dpEsc(dpState.cfg.contaPadrao) + ')', 'aviso') : '') + (s.duplicados ? dpChip(s.duplicados, 'possíveis duplicados', 'aviso') : '') + (s.anoDiferente ? dpChip(s.anoDiferente, 'de outro ano', 'aviso') : '') + (s.transferencias ? dpChip(s.transferencias, 'transferências entre bancos (lance à mão)', 'aviso') : '') + (s.vazias ? dpChip(s.vazias, 'linhas em branco', 'ign') : '');
   const filtradas = dpState.soProblemas ? a.linhas.filter((l) => l.status !== 'ok') : a.linhas, fim = Math.min(filtradas.length, dpState.interpMax);
   const rot = { ok: '✔', aviso: '⚠', erro: '✖', ignorada: '—' };
   const tr = filtradas.slice(0, fim).map((l) => '<tr class="dp-l--' + l.status + '"><td class="dp-num-c">' + l.linha + '</td><td>' + (l.data ? dpEsc(l.data) : '<span class="dp-ruim">' + dpEsc(l.dataLida || '—') + '</span>') + '</td><td class="dp-dir">' + (l.valor != null ? dpEsc(dpFmtValor(l.valor, 'virgula')) + (l.valor < 0 ? ' <span class="dp-dica">(neg.)</span>' : '') : '<span class="dp-ruim">' + dpEsc(l.valorLido || '—') + '</span>') + '</td><td title="' + dpEsc(l.hist) + '">' + dpEsc((l.hist || l.forn).slice(0, 46)) + '</td><td>' + (l.contaDebito || '') + '</td><td>' + (l.contaCredito || '') + '</td><td>' + (l.natureza ? (l.natureza === 'PAGAMENTO' ? 'Pagto' : 'Receb') : '') + '</td><td class="dp-st">' + rot[l.status] + ' ' + dpEsc(l.motivos.concat(l.avisos).join(' · ') || (l.origemConta || '')) + '</td></tr>').join('');
   const mais = filtradas.length > fim ? '<div class="dp-linha"><span class="dp-dica">Mostrando ' + fim + ' de ' + filtradas.length + '.</span><button class="btn btn-ghost btn-sm" onclick="dpState.interpMax+=100;dpRenderSec(\'interp\')">+ 100</button><button class="btn btn-ghost btn-sm" onclick="dpState.interpMax=99999;dpRenderSec(\'interp\')">Mostrar todas</button></div>' : '';
-  return dpTitulo(4, 'Como o sistema vai ler', 'Linha a linha: o que foi lido, em que conta cai e por quê. <b>Nenhuma linha some sem aparecer aqui.</b>') + '<div class="dp-chips">' + chips + '</div>' +
+  return dpTitulo(4, 'Como o sistema vai ler', 'Linha a linha: o que foi lido, em que conta cai e por quê. <b>Nenhuma linha some sem aparecer aqui.</b>') + dpConfHtml() + '<div class="dp-chips">' + chips + '</div>' +
     '<div class="dp-acoes"><label class="dp-check"><input type="checkbox" ' + (dpState.soProblemas ? 'checked' : '') + ' onchange="dpState.soProblemas=this.checked;dpState.interpMax=60;dpRenderSec(\'interp\')"/> Mostrar só o que precisa de atenção</label>' + (s.erros + s.ignoradas + s.avisos + s.semConta ? '<button class="btn btn-ghost btn-sm" onclick="dpBaixarProblemas()">⬇ Baixar lista de problemas (.csv)</button>' : '') + '</div>' +
     '<div class="dp-tabela-wrap dp-interp-wrap"><table class="dp-tabela dp-interp"><thead><tr><th>Linha</th><th>Data</th><th>Valor</th><th>Histórico</th><th>Débito</th><th>Crédito</th><th>Natureza</th><th>Situação / origem da conta</th></tr></thead><tbody>' + (tr || '<tr><td colspan="8" class="dp-dica" style="padding:14px">Nada a mostrar.</td></tr>') + '</tbody></table></div>' + mais;
 };

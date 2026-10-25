@@ -119,6 +119,93 @@ eq('config antiga preservada', [antiga.contaCaixa, antiga.deParaMap.A, antiga.re
 eq('config lixo vira vazia', C.dpNormalizarConfig(null).regras, []);
 eq('regra inválida é descartada', C.dpNormalizarConfig({ regras: [null, { keywords: 'x' }, { keywords: ['a'], conta: '1' }] }).regras.length, 1);
 
+// ═══ Reconhecimento de layouts (dados FICTÍCIOS) ═══════════════════════════════════════════════════════════════════
+// ── data suja ──
+const dd = C.dpParseData('´06/04/2026');
+eq('data com acento solto é aceita e marcada', [dd.ok, dd.br, dd.corrigida], [true, '06/04/2026', true]);
+eq('data limpa não é marcada', C.dpParseData('06/04/2026').corrigida, undefined);
+eq('texto sem data continua erro', C.dpParseData('abc').ok, false);
+eq('data inválida com lixo continua erro', C.dpParseData('´31/02/2026').ok, false);
+
+// ── operações da plataforma SN ──
+eq('operação Receita', C.dpNaturezaDoTipo('Receita'), 'RECEBIMENTO');
+eq('operação Aporte', C.dpNaturezaDoTipo('Aporte'), 'RECEBIMENTO');
+eq('operação Empréstimo', C.dpNaturezaDoTipo('Empréstimo'), 'RECEBIMENTO');
+eq('operação Despesa', C.dpNaturezaDoTipo('Despesa'), 'PAGAMENTO');
+eq('operação Retirada', C.dpNaturezaDoTipo('Retirada'), 'PAGAMENTO');
+eq('operação Bens', C.dpNaturezaDoTipo('Bens'), 'PAGAMENTO');
+eq('operação Entre bancos', C.dpNaturezaDoTipo('Entre bancos'), 'TRANSFERENCIA');
+
+// ── layout da plataforma: 9 operações diferentes + Complemento ──
+const OPS = ['Receita', 'Despesa', 'Aporte', 'Retirada', 'Empréstimo', 'Estoque', 'Bens', 'Investimento', 'Entre bancos'];
+const plat = [['ID', 'DATA', 'OPERAÇÕES', 'VALOR', 'DESCRIÇÃO', 'COMPROVANTE', 'Complemento', 'RESPONSÁVEL']];
+for (let i = 0; i < 27; i++) plat.push([i + 1, 46300 + (i % 20), OPS[i % 9], 100 + i * 7.35, 'Pagamento de serviços prestados no mês ' + i, '', i % 3 ? 'ref ' + i : '', 'Fulano']);
+const cabP = C.dpCabPadrao(plat), mapP = C.dpDetectarColunas(plat, cabP);
+eq('plataforma: cabeçalho na linha 1', cabP, 0);
+eq('plataforma: data/valor/descrição', [mapP.data, mapP.valor, mapP.historico], [1, 3, 4]);
+eq('plataforma: coluna OPERAÇÕES reconhecida como Tipo (9 valores)', mapP.tipo, 2);
+eq('plataforma: Complemento entra como extra', mapP.extras, [6]);
+const resP = C.dpAnalisar(plat, cabP, mapP, C.dpNormalizarConfig({ contaCaixa: '1' }));
+const nat = (op) => resP.linhas.filter((l) => l.tipo === op && l.status !== 'ignorada').map((l) => l.natureza);
+eq('plataforma: Receita é recebimento', nat('Receita').every((n) => n === 'RECEBIMENTO') && nat('Receita').length > 0, true);
+eq('plataforma: Despesa é pagamento', nat('Despesa').every((n) => n === 'PAGAMENTO') && nat('Despesa').length > 0, true);
+eq('plataforma: Entre bancos fica de fora e é contado', [resP.resumo.transferencias, resP.linhas.filter((l) => l.tipo === 'Entre bancos').every((l) => l.status === 'ignorada')], [3, true]);
+eq('plataforma: complemento vai para o histórico', resP.lancamentos.some((l) => l.historico.includes(' · ref ')), true);
+eq('plataforma: nada some', resP.resumo.validas + resP.resumo.erros + resP.resumo.ignoradas, resP.resumo.lidas);
+
+// ── extrato com duas colunas de valor, SEM cabeçalho, com saldo e coluna D/C ──
+const ext = [];
+let saldo = 1000;
+for (let i = 0; i < 14; i++) {
+  const entrada = i % 3 === 0, v = 50 + i * 11.1;
+  saldo += entrada ? v : -v;
+  ext.push(['BANCO TESTE', String(1 + i).padStart(2, '0') + '/09/2026', 0, '000' + (1000 + i), (entrada ? 'RECEBIMENTO CLIENTE ' : 'PAGAMENTO FORNECEDOR ') + i, entrada ? '' : v.toFixed(2).replace('.', ','), entrada ? v.toFixed(2).replace('.', ',') : '', saldo.toFixed(2).replace('.', ','), entrada ? 'CR' : 'DB']);
+}
+ext.splice(6, 0, ['BANCO TESTE', '', '', '', 'TOTAL DE RECIBOS DO PERÍODO', '', '', '', '']);
+eq('sem cabeçalho: dpCabPadrao devolve -1', C.dpCabPadrao(ext), -1);
+const mapE = C.dpDetectarColunas(ext, -1);
+eq('extrato: data na coluna B', mapE.data, 1);
+eq('extrato: saída = F e entrada = G (saldo H fica de fora)', [mapE.valor, mapE.valorEntrada], [5, 6]);
+const cfgE = C.dpNormalizarConfig({ contaCaixa: '1', ano: '2026' });
+const resE = C.dpAnalisar(ext, -1, mapE, cfgE);
+eq('extrato: entradas viram recebimento e saídas pagamento', [resE.lancamentos.filter((l) => l.natureza === 'RECEBIMENTO').length, resE.lancamentos.filter((l) => l.natureza === 'PAGAMENTO').length], [5, 9]);
+eq('extrato: nenhum erro de valor', resE.resumo.erros, 0);
+const sigA = C.dpAssinatura(ext, -1);
+eq('assinatura sem cabeçalho é a forma das colunas', sigA.startsWith('forma:9:'), true);
+eq('mesma forma, mesma assinatura (mês seguinte)', C.dpAssinatura(ext.slice(0, 8), -1), sigA);
+
+// ── valor nas duas colunas ao mesmo tempo é erro ──
+const dupla = [['Data', 'Histórico', 'Saída', 'Entrada'], ['01/09/2026', 'a', '10,00', ''], ['02/09/2026', 'b', '', '20,00'], ['03/09/2026', 'c', '5,00', '5,00'], ['04/09/2026', 'd', '', '']];
+const resD = C.dpAnalisar(dupla, 0, { data: 0, valor: 2, valorEntrada: 3, fornecedor: 1, historico: 1, banco: '', tipo: '', extras: [] }, C.dpNormalizarConfig({ contaCaixa: '1' }));
+eq('duas colunas: uma ok pagamento, uma ok recebimento', resD.lancamentos.map((l) => l.natureza), ['PAGAMENTO', 'RECEBIMENTO']);
+eq('duas colunas: valor nas duas = erro; nenhuma = erro', resD.resumo.erros, 2);
+
+// ── data suja entra com aviso, não some ──
+const suja = [['Data', 'Valor', 'Descrição'], ['´06/04/2026', '10,00', 'compra de material'], ['07/04/2026', '20,00', 'outra compra'], ['', '30,00', 'sem data']];
+const resS = C.dpAnalisar(suja, 0, { data: 0, valor: 1, fornecedor: 2, historico: 2, banco: '', tipo: '', extras: [] }, C.dpNormalizarConfig({ contaCaixa: '1' }));
+eq('data suja: lançada com aviso', [resS.linhas[0].status, resS.linhas[0].avisos.some((a) => a.includes('caracteres extras'))], ['aviso', true]);
+eq('data vazia com valor continua erro', resS.linhas[2].status, 'erro');
+
+// ── linha de total COM data vira aviso ──
+const totl = [['Data', 'Valor', 'Descrição'], ['06/04/2026', '10,00', 'compra'], ['30/04/2026', '10,00', 'TOTAL DO MÊS']];
+const resT = C.dpAnalisar(totl, 0, { data: 0, valor: 1, fornecedor: 2, historico: 2, banco: '', tipo: '', extras: [] }, C.dpNormalizarConfig({ contaCaixa: '1' }));
+eq('total com data: aviso para conferir', resT.linhas[1].avisos.some((a) => a.includes('total')), true);
+
+// ── mapa antigo (sem valorEntrada/extras) continua funcionando ──
+const resV = C.dpAnalisar(suja, 0, { data: 0, valor: 1, fornecedor: 2, historico: 2, banco: '', tipo: '' }, C.dpNormalizarConfig({ contaCaixa: '1' }));
+eq('mapa antigo salvo no Firestore ainda analisa', resV.resumo.validas, 2);
+
+// ── confiança ──
+const cfOk = C.dpConfianca(plat, cabP, mapP, resP, C.dpNormalizarConfig({ contaCaixa: '1' }));
+eq('confiança: layout da plataforma é pronto', [cfOk.pronto, cfOk.geral], [true, 'alta']);
+const ruim = [['x', 'y', 'z']]; for (let i = 0; i < 10; i++) ruim.push(['01/01/2026', i % 2 ? 'abc' : '1,00', 'texto ' + i]);
+const mapR = { data: 0, valor: 1, fornecedor: 2, historico: 2, banco: '', tipo: '', extras: [] };
+const cfR = C.dpConfianca(ruim, 0, mapR, C.dpAnalisar(ruim, 0, mapR, C.dpNormalizarConfig({ contaCaixa: '1' })), C.dpNormalizarConfig({}));
+eq('confiança: mapeamento que gera muito erro é BAIXA e bloqueia', [cfR.geral, cfR.pronto], ['baixa', false]);
+const cfSem = C.dpConfianca(ext, -1, mapE, resE, cfgE);
+eq('confiança: sem cabeçalho é no máximo média', cfSem.geral, 'media');
+eq('confiança: cada nota diz o campo', cfSem.notas.every((n) => n.campo && n.nota), true);
+
 console.log(falhas ? `\n${falhas} FALHA(S), ${ok} ok` : `Tudo confere. (${ok} conferências)`);
 process.exit(falhas ? 1 : 0);
 
