@@ -62,7 +62,12 @@ index.html ainda registra o service worker (sw.js) e faz o recarregamento autom�
 | Arquivo | Responsabilidade |
 |---|---|
 | `index.html` | Página do cliente. Meta tags PWA, inicializa Firebase, `ADMIN_MODE=false`, carrega `app.js`, registra `sw.js` e faz o recarregamento automático |
-| `admin.html` | Página do administrador. Mesmo Firebase, `ADMIN_MODE=true`, **sem** service worker |
+| `admin.html` | Página do administrador. Mesmo Firebase, `ADMIN_MODE=true`, **sem** service worker. Carrega também `depara.css`, `depara-core.js` e `depara.js` (o DE-PARA **não** é carregado na página do cliente) |
+| `depara-core.js` | **DE-PARA, núcleo puro** (sem DOM e sem Firebase): lê data/valor, detecta cabeçalho e colunas, resolve contas, analisa linha a linha e gera o `.txt`. Roda no navegador e no Node (testes). Prefixo `dp*`/`DP_*` |
+| `depara.js` | **DE-PARA, tela do admin**: clientes no Firestore, upload, prévia, mapeamento, regras, geração. Expõe `admDepara()` |
+| `depara.css` | Estilo do DE-PARA, tudo prefixado `.dp-` e só com variáveis de tema do app |
+| `testes/depara-core.test.cjs` | Única bateria automatizada do projeto: `node testes/depara-core.test.cjs` (72 conferências do núcleo) |
+| `testes/exemplo-depara.xlsx` | Planilha de exemplo **propositalmente bagunçada** (dados fictícios) para testar o DE-PARA |
 | `app.js` | Toda a aplicação (constantes, estado, Firestore, login, admin, cliente, relatório, gráficos, init) |
 | `style.css` | Tema escuro/claro por variáveis CSS (`:root` e `body.light`), layout admin (sidebar) e cliente (topbar + bottom-nav) |
 | `sw.js` | Service worker: rede primeiro sem cache HTTP, cai no cache offline; `CACHE_NAME` |
@@ -82,7 +87,7 @@ index.html ainda registra o service worker (sw.js) e faz o recarregamento autom�
 | Tema | `applyTheme`/`toggleTheme` (`localStorage 'sn:theme'`) |
 | `render()` | Roteia por `S.page`: `login`, `changepwd`, `admin`, `client` |
 | Login | `pageLogin`, `pageLoginAdmin`, `doLogin`, `doGoogleLogin`, `doChangePwd`, `doLogout` |
-| Admin | `pageAdmin` + `admDashboard`, `admClients`, `admClientDetail`, `admBanks`, `admDescriptions`, `admOperacoes`, `admMensagens`; Google Sheets (`sheets*`, `syncAllToSheets`) |
+| Admin | `pageAdmin` + `admDashboard`, `admClients`, `admClientDetail`, `admBanks`, `admDescriptions`, `admOperacoes`, `admMensagens`, **`admDepara`** (vem de `depara.js`; no `app.js` só há **3 encaixes**: item `{id:'depara'}` do menu, título em `titles` e o `else if(S.adminView==='depara')` do roteamento); Google Sheets (`sheets*`, `syncAllToSheets`) |
 | Mensagens | `unreadMsgs`, `sendBroadcastMsg`, `sendAdminReply`, `sendClientMsg`, `screenMensagens` |
 | Cliente | `pageClient`, `screenPainel`, `screenNovo`, `screenHistorico`, `screenLista`, (`screenGrafico`/`screenTipos` legados), edição (`renderEditOverlay`), relatório (`printRelatorio`, `exportExcel`) |
 | Gráficos | `buildAdminCharts`, `buildClientCharts` (Chart.js) |
@@ -98,7 +103,8 @@ index.html ainda registra o service worker (sw.js) e faz o recarregamento autom�
 | Cloudinary | cloud `dk10wezy9`, upload preset sem assinatura (`o5v89u2z`): logos, ícones de banco/operação e **comprovantes** |
 | Google Sheets | planilha `SPREADSHEET_ID` (constante em `app.js`); escrita via API v4 com o token OAuth do login Google do admin |
 | Conta admin | constante `ADMIN_EMAIL` em `app.js` — única conta aceita no login Google |
-| SheetJS | `xlsx@0.18.5` via jsDelivr, **carregado sob demanda** só ao exportar Excel |
+| SheetJS | `xlsx@0.18.5` via jsDelivr, **carregado sob demanda** (`loadSheetJS`): ao exportar Excel e ao ler planilha no DE-PARA |
+| pdf.js | `pdf.js@3.11.174` via cdnjs, **só no DE-PARA e só ao enviar um PDF** (`dpCarregarPdfJs`) |
 
 Não há `.env`: **tudo é constante no código** (chaves públicas de cliente). Quem protege os dados são as **regras do
 Firestore** (não versionadas aqui — o console do Firebase é a fonte da verdade).
@@ -121,6 +127,8 @@ Duas coleções. **Não há migrations**; documento antigo precisa continuar abr
 | `msgread` | `{ clientId: "ISO" }` — até quando o cliente leu |
 | `clientmessages` | `{ clientId: [mensagens da conversa] }` |
 | `txmap` | **Legado** (todos os lançamentos num doc só). Migrado e apagado automaticamente por `loadAll` |
+| `depara_index` | **DE-PARA**: array `[{ id, nome }]` com os clientes do DE-PARA (**não** são os clientes do app) |
+| `depara_c_<id>` | **DE-PARA**: configuração de um cliente do DE-PARA (ver abaixo). Um documento por cliente |
 
 **Cliente** (`clients[]`): `id`, `razaoSocial`, `cnpj`, `email`, `username` (login, sem espaços, único sem distinção de
 caixa), `password` (**texto puro**), `mustChangePwd`, `createdAt`, `appVersion` e `lastLogin` (gravados a cada login).
@@ -129,6 +137,15 @@ caixa), `password` (**texto puro**), `mustChangePwd`, `createdAt`, `appVersion` 
 
 **Mensagem do cliente/admin** (`clientmessages[clientId][]`): `{ id, text(≤500), sentAt, readByAdmin, fromAdmin? }`.
 **Comunicado** (`messages[]`): `{ id, text, sentAt }`.
+
+**Cliente do DE-PARA** (`sn/depara_c_<id>` → `{ value: ... }`): `contaCaixa`, `contaPadrao` (padrão `999999`),
+`delimitador` (`;` `,` `tab`), `decimalFmt` (`virgula`/`ponto`), `codificacao` (`ansi`/`utf8`), `naturezaPadrao`
+(`PAGAMENTO`/`RECEBIMENTO`), `usarSinal` (bool), `ano`, `deParaLista` (`[{ nome, conta }]`), `regras`
+(`[{ id, keywords[], banco, natureza, conta }]`, **a ordem é a prioridade**), `layout` (`{ assinatura, linhaCab, mapa,
+aba }`, o último mapeamento de colunas confirmado) e `atualizadoEm`. O DE-PARA por nome é guardado como **lista**, não
+como mapa, de propósito: nome de fornecedor com `.` ou `/` seria problema como chave do Firestore; em memória
+(`cfg.deParaMap`) continua um mapa `{ nome: conta }`. `dpDeserializar` aceita os dois formatos e também o `.json`
+exportado pelo conversor antigo (`conversor_depara.html`). **A planilha enviada nunca é gravada.**
 
 ### 4.2 Coleção `sntx` — um documento por cliente: `{ txs: [...] }` (via `fsGetTx/fsSetTx`)
 
@@ -205,8 +222,8 @@ Abas (`S.clientTab`): **Painel**, **Lançamento** (`novo`), **Histórico**, **Me
 
 ### 7.2 Administrador (`pageAdmin`)
 
-Menu: **Dashboard**, **Clientes**, **Bancos**, **Descrições**, **Operações**, **Mensagens** + botões **Sheets** (abre a
-planilha) e **Sincronizar**.
+Menu: **Dashboard**, **Clientes**, **Bancos**, **Descrições**, **Operações**, **Mensagens**, **DE-PARA** + botões **Sheets**
+(abre a planilha) e **Sincronizar**.
 
 - **Dashboard** (`admDashboard`): 7 cards consolidados (clientes cadastrados, com lançamentos, total de lançamentos,
   total receitas, total despesas, saldo consolidado, **Pendente**), gráficos, últimos lançamentos de todos e ranking
@@ -225,6 +242,10 @@ planilha) e **Sincronizar**.
 - **Operações:** as 9 padrão são fixas; o admin cria **operações personalizadas** (nome, cor, ícone obrigatório).
 - **Mensagens:** comunicado para todos (`unshift` em `messages`), excluir comunicado, responder cada cliente
   (≤500 caracteres), marcar como lida; selo vermelho no menu com o total de mensagens de clientes não lidas.
+- **DE-PARA** (`admDepara`, só admin): converte planilha/PDF de lançamentos em `.txt` para o Contmatic — regras na
+  seção 8.11. Seções, nesta ordem: Cliente do DE-PARA → 1 Arquivo → 2 Prévia do arquivo → 3 Onde está cada informação →
+  4 Como o sistema vai ler → 5 Configurações do cliente → 6 DE-PARA por nome → 7 Regras por palavra-chave → 8 Gerar e
+  baixar. As seções 2 a 4 e 6 a 8 só aparecem com um arquivo carregado.
 
 ## 8. Regras de negócio
 
@@ -363,6 +384,87 @@ Botão **🖨️ Imprimir / Exportar** → janela com duas opções:
   a planilha não leva status, vencimento nem parcela** (pendência).
 - Sem token (login Google feito em outra sessão) o botão pede logout/login.
 
+### 8.11 DE-PARA — planilha → `.txt` do Contmatic (só admin)
+
+Substitui o `conversor_depara.html` (arquivo avulso, com clientes só no `localStorage`) e mantém as mesmas
+funcionalidades, **corrigidas**. Regra de ouro do módulo: **nenhuma linha some em silêncio** — toda linha lida termina
+como `ok`, `aviso`, `erro` ou `ignorada`, sempre com o motivo e o **número da linha na planilha**. A lógica está em
+`depara-core.js` (pura, testada) e a tela em `depara.js`; mexeu na regra? Mexa **no núcleo** e rode os testes.
+
+**Clientes** (seção 4.1): criar (nome único, sem diferenciar caixa), renomear, excluir (`confirm`), exportar/importar `.json`.
+Trocar de cliente **descarta o arquivo carregado** — nunca se gera um arquivo com as regras de outro cliente. A
+configuração é gravada sozinha (700 ms depois da última alteração); o selo "☁ salvo no Firebase" mostra o estado.
+
+**Arquivo.** `.xlsx`/`.xls` (SheetJS) ou `.pdf` com texto selecionável (pdf.js; leitura **aproximada**: as colunas saem da
+posição do texto e há o ajuste "distância mínima entre colunas", 4 a 80, padrão 18). A planilha é lida com
+`cellDates:false`: datas chegam como **número de série do Excel** e são convertidas sem fuso horário (evita o erro de
+um dia). Planilha com várias abas: escolhe-se a aba na prévia (abre na primeira que não está vazia).
+
+**Cabeçalho e colunas (detecção automática, sempre conferível).**
+- Cabeçalho = a primeira linha, entre as 40 primeiras, com 2+ células de texto (que não sejam data nem valor) e, nas 5
+  seguintes, alguma data. Sem achar: a linha 1 vira cabeçalho, ou "sem cabeçalho" se a linha 1 já tem data.
+- Colunas, nesta ordem: Data, Valor, Histórico, Fornecedor, Banco, Tipo — pontuadas pelo **conteúdo** (parte de células que
+  são data, que são número, tamanho médio do texto, quantos valores diferentes) somado à **dica do título** (ex.: "Vlr",
+  "Favorecido"). Banco e Tipo só entram se o título ajudar. Com um único campo de texto, ele serve de fornecedor **e** de
+  histórico. A tela avisa "✨ detectadas automaticamente — confira".
+- **Layout salvo:** a assinatura é a lista dos títulos do cabeçalho (sem caixa/acento). Se o arquivo seguinte do cliente
+  tiver a mesma assinatura, o mapeamento salvo é reaproveitado ("✔ layout reconhecido"). O layout é salvo quando se
+  muda cabeçalho/coluna e ao gerar o arquivo. Obrigatórias: **Data**, **Valor** e **Fornecedor ou Histórico**.
+
+**Prévia do arquivo (seção 2).** Tabela com letra de coluna e número de linha, selo colorido do campo em cada coluna
+mapeada, linhas **antes** do cabeçalho esmaecidas (são ignoradas), cabeçalho em destaque e datas já mostradas como data.
+Clicar no número de uma linha a define como cabeçalho. Mostra 40 linhas (+50 / todas).
+
+**Leitura de cada linha (`dpAnalisar`).**
+1. **Em branco** (todas as células vazias): contada à parte, não é erro.
+2. **Ignorada:** sem data **e** sem valor (título, observação, separador) ou linha cujo texto começa com
+   total/subtotal/saldo/soma/resumo e que não tem data.
+3. **Erro** (não entra no arquivo): data inválida, data vazia, valor vazio/não numérico ou **valor zero**.
+4. **Data:** aceita `dd/mm/aaaa` (separador `/`, `-` ou `.`), `dd/mm/aa`, `aaaa-mm-dd`, `ddmmaaaa`, data/hora, número de
+   série do Excel e `Date`. **Nunca adivinha `mm/dd`** (`10/25/2026` é erro). Ano entre 1990 e 2100; dia/mês existentes.
+5. **Valor:** aceita `R$`, milhar e decimal nos dois padrões (`1.234,56` e `1,234.56`; o **último** separador é o decimal),
+   `(1.234,56)`, `-1.234,56`, `1.234,56-`. `1.500` isolado vale **mil e quinhentos** (padrão brasileiro). Arredonda em
+   centavos. **No arquivo o valor vai sempre positivo.**
+6. **Natureza** (pagamento/recebimento), por prioridade: regra → coluna **Tipo** → **sinal do valor** (só se a opção do
+   cliente estiver ligada: negativo = pagamento, positivo = recebimento) → natureza padrão do cliente. A coluna Tipo
+   reconhece `receb/entrada/crédito/receita/CR/C` como recebimento e `pag/saída/débito/despesa/DB/D` como pagamento; texto
+   que não reconhece vira **aviso** e cai no passo seguinte.
+7. **Conta do terceiro**, por prioridade: **regra** (a primeira que casar) → **DE-PARA exato** (nome idêntico, sem
+   diferenciar caixa e acento) → **DE-PARA por aproximação** (o nome da linha *contém* o nome cadastrado; só para
+   cadastros de **4+ letras** e vence o **mais longo**; gera aviso "conta por aproximação") → **conta para não
+   identificados** (padrão `999999`, configurável; gera aviso "sem conta").
+8. **Débito/crédito:** pagamento = débito na conta do terceiro e crédito no caixa; recebimento = débito no caixa e
+   crédito na conta do terceiro. O DE-PARA por nome usa o texto da coluna Fornecedor (ou o histórico, se não houver).
+9. **Avisos que não impedem a linha:** sem conta, aproximação, tipo não reconhecido, **possível duplicado** (mesma data +
+   valor + histórico de outra linha, ela é mantida), **ano diferente** do "ano do arquivo" do cliente.
+
+**Regras por palavra-chave.** Escolhe-se um lançamento de exemplo, clicam-se as palavras (ou digita-se uma) e a tela mostra
+**na hora** os lançamentos impactados. A regra casa quando **todas** as palavras aparecem no histórico — **sem diferenciar
+caixa e acento, e por pedaço de texto** (`TARIF` casa `TARIFA`) —, e, se tiver banco, quando o banco da linha é igual.
+**Regra com banco só vale se a coluna Banco estiver mapeada** (no conversor antigo, sem a coluna, comparava com o
+fornecedor); a tela avisa quando é o caso. A **ordem é a prioridade** (↑ ↓): vale a primeira que casar. Cada regra mostra
+quantos lançamentos pega no arquivo aberto.
+
+**Configurações do cliente.** Conta de caixa/banco (**obrigatória para gerar**), conta para não identificados, ano do arquivo
+(nome do arquivo e aviso de datas de outro ano — **não filtra** nada), natureza padrão, usar o sinal do valor,
+separador (`;`, `,`, tabulação), formato do valor (`1500,00` ou `1500.00`) e codificação.
+
+**Arquivo gerado.** Uma linha por lançamento: `data;débito;crédito;valor;histórico` (separador e formato conforme o
+cliente), terminada em `\r\n`. O **separador e as quebras de linha dentro do histórico viram espaço** (no conversor
+antigo um `;` no histórico quebrava as colunas). Codificação **ANSI de verdade (Windows-1252)** por padrão — letras
+acentuadas, `–`, `—`, `’`, `“ ”` e `€` são preservados; caractere sem correspondência vira `?` e a tela avisa quantos.
+UTF-8 é opção. Nome: `<Cliente sem acento e sem espaço>_<ano>_Lctos.txt` (ex.: `PadariaPaoQuente_2026_Lctos.txt`).
+Aviso quando o separador de campos coincide com o decimal (`,` + vírgula).
+
+**Trava de segurança antes de baixar.** O botão só habilita com: ao menos 1 lançamento válido **e** conta de caixa
+informada **e**, havendo erro, aviso ou linha sem conta, a caixa **"Revisei os avisos e quero gerar mesmo assim"**
+marcada (a tela diz quantas linhas ficam de fora e quantas usam a conta de não identificados). Alterar regra, DE-PARA ou
+configuração **desmarca** a confirmação. Há ainda o `.csv` "lista de problemas" (linha, situação, motivo, data e valor
+lidos, histórico) para conferir fora do sistema.
+
+**Segurança e privacidade.** A planilha é processada **só no navegador** e nunca é enviada nem gravada. Todo texto vindo do
+arquivo ou do Firestore passa por `dpEsc` antes de virar `innerHTML`. A página só existe no `admin.html`.
+
 ## 9. PWA e atualização automática
 
 - `sw.js`: **rede primeiro, sem cache HTTP** (`fetch(req,{cache:'no-store'})`) para qualquer GET do mesmo domínio;
@@ -390,14 +492,19 @@ Botão **🖨️ Imprimir / Exportar** → janela com duas opções:
 
 ## 11. Como validar
 
-Não há testes automatizados, lint nem CI. Rotina mínima:
+Não há lint nem CI. Há **uma** bateria automatizada, a do núcleo do DE-PARA. Rotina mínima:
 
-1. `node --check app.js` e `node --check sw.js` (sintaxe).
+1. `node --check app.js`, `node --check sw.js`, `node --check depara-core.js`, `node --check depara.js` (sintaxe) e
+   `node testes/depara-core.test.cjs` (precisa terminar em "Tudo confere."). Mexeu no DE-PARA? Acrescente a conferência
+   do caso novo no teste **antes** de corrigir.
 2. Abrir `index.html` no **Live Server** (login de cliente) e `admin.html` (login Google admin).
 3. Roteiro funcional: lançar À vista; lançar A prazo (3x, conferir centavos e datas); lançar Contínuo (conferir
    meses até dezembro); aviso de vencimento; dar baixa; editar; excluir; card **Pendente** no cliente e no admin;
    filtro Situação; Imprimir/Exportar (PDF e Excel); mensagens; sincronizar Sheets.
 4. Conferir clientes e lançamentos **antigos** (sem `status`) ainda abrindo normalmente.
+5. DE-PARA (admin): criar um cliente, enviar `testes/exemplo-depara.xlsx` (deve achar o cabeçalho na linha 4 e mapear as
+   colunas sozinho), conferir "Como o sistema vai ler", criar uma regra, baixar o `.txt`, recarregar a página e ver o
+   cliente e as regras de volta (Firestore); enviar de novo e ver "layout reconhecido".
 
 ## 12. Como publicar
 
@@ -430,6 +537,14 @@ Confirmadas no código em 24/10/2026. Nenhuma foi alterada por não ter sido ped
 10. **`todayStr()` é UTC** (usado ainda como data padrão do campo "Data"): à noite pode sugerir o dia seguinte.
 11. **Telas legadas** (`grafico`, `tipos`) e a função `makeUser` não têm acesso/uso; `lista` só abre pelo aviso.
 12. **`alert`/`confirm`** não funcionam em `iframe` com sandbox.
+13. **DE-PARA — não validado com o Contmatic real.** O layout do `.txt` (`data;débito;crédito;valor;histórico`) foi
+    herdado do conversor antigo; não houve importação de teste no sistema. Também não foram testados com arquivo real:
+    leitura de **PDF**, gravação no **Firestore real** (as regras do console precisam aceitar escrita em `sn/depara_*`,
+    como já aceitam em `sn/clients`) e o uso em **celular**.
+14. **DE-PARA — não valida a conta contra o plano de contas** do cliente: um número digitado errado é aceito. Importar o
+    plano de contas e avisar conta inexistente é o próximo passo natural.
+15. **DE-PARA — o arquivo `conversor_depara.html` antigo** continua existindo fora do projeto; clientes dele só migram pelo
+    "Importar (.json)".
 
 ---
 
@@ -437,6 +552,62 @@ Confirmadas no código em 24/10/2026. Nenhuma foi alterada por não ter sido ped
 
 > Uma entrada por mudança, **a mais recente no topo**. Formato: data · versão — pedido, feito, decisões e porquês,
 > validação, pendências.
+
+### 2026-10-25 · v1.1.0 (versão **não** subida) — DE-PARA: planilha → `.txt` do Contmatic dentro do admin
+
+**Pedido:** o dono tem uma ferramenta própria (`conversor_depara.html`) para ler planilhas de clientes **sem padrão**,
+identificar cada coluna e gerar o arquivo de lançamentos do Contmatic, para não pagar por uma ferramenta de mercado.
+Pediu para integrá-la ao app como **nova aba do menu lateral do admin, abaixo de Mensagens, com o título DE-PARA**;
+manter as funcionalidades, **corrigidas para evitar erros**; ter uma **prévia do arquivo enviado** para ser mais
+assertivo; **clientes salvos no Firebase**; e **tirar os logos/imagens do código** (usar o Cloudinary, para ficar leve).
+Antes disso foi feita uma comparação com a Ottimizza ("Meu Integrador"): ela tem equivalentes ao mapeamento de colunas,
+DE-PARA e regras, mais biblioteca de layouts, plano de contas, histórico de lotes e busca de extrato; não foi possível
+confirmar se ela gera para o Contmatic (a Domínio é a parceira citada na tela).
+
+**Feito (branch `feature/depara`):**
+- Arquivos novos: `depara-core.js` (núcleo puro), `depara.js` (tela), `depara.css`, `testes/depara-core.test.cjs` (72
+  conferências) e `testes/exemplo-depara.xlsx`. `admin.html` carrega os três primeiros; `index.html` **não**.
+- `app.js`: só **3 encaixes** (item de menu, título, roteamento) — o resto mora nos arquivos novos.
+- Tela com 8 seções (regras completas na seção 8.11): clientes no Firestore, upload, **prévia do arquivo** (tabela com
+  colunas coloridas por campo, cabeçalho clicável, abas), mapeamento com **detecção automática** e **layout salvo por
+  cliente**, **"Como o sistema vai ler"** (linha a linha, com motivo), configurações, DE-PARA por nome, regras por
+  palavra-chave com impacto ao vivo, e geração com trava de confirmação.
+- **Correções em relação ao conversor antigo:** linhas descartadas em silêncio agora aparecem todas, com motivo; data
+  inválida é erro e `mm/dd` não é mais adivinhado; datas do Excel sem erro de fuso; valores negativos, entre parênteses,
+  com `R$`, com `-` no fim e nos dois padrões de milhar/decimal; valor sempre positivo no arquivo; `;`/quebra de linha no
+  histórico não quebram mais as colunas; codificação ANSI (Windows-1252) de verdade com contagem de caracteres perdidos
+  (antes `& 0xFF` corrompia `–`, `’`, `“ ”`); todas as abas da planilha; DE-PARA sem diferenciar caixa/acento e
+  aproximação só com 4+ letras e pelo nome mais longo; regra com banco não compara mais com o fornecedor quando falta a
+  coluna Banco; regras com ordem de prioridade editável; avisos de duplicado, ano diferente e separador conflitante.
+- Sem imagens embutidas: o arquivo antigo tinha 253 KB (a maior parte base64); o módulo novo tem ~80 KB de código. O logo
+  do cabeçalho é o do app (Cloudinary). SheetJS e pdf.js só são baixados quando se envia um arquivo.
+
+**Decisões e porquês:**
+- **Coleção `sn`, não uma nova:** `depara_index` + `depara_c_<id>` reaproveitam a coleção que o app já usa, então **não
+  exige regra nova** no Firestore (uma coleção nova falharia em silêncio sem a regra publicada). Um documento por cliente
+  evita o limite de 1 MB.
+- **DE-PARA gravado como lista `[{nome, conta}]`**, não como mapa: nome de fornecedor com `.` ou `/` seria problema como
+  chave do Firestore.
+- **Núcleo puro separado da tela**, no mesmo padrão do módulo de Orçamentos do outro projeto do dono: dá para testar em
+  Node e corrigir regra sem abrir o navegador. As seções da tela são re-renderizadas **uma a uma** (`dpRenderSec`), para
+  não roubar o foco de quem está digitando.
+- **Trava antes de baixar** em vez de simplesmente bloquear: o dono pode precisar gerar com linhas sem conta (vão para a
+  conta de não identificados), mas tem de confirmar sabendo quantas são. Toda reanálise desmarca a confirmação.
+- **`APP_VERSION`/`CACHE_NAME` NÃO foram subidos:** a mudança é só do admin; subir a versão faria o painel do admin marcar
+  **todos os clientes** como "⚠ versão desatualizada" sem que nada tenha mudado para eles.
+- **Não foi aplicado nada visual** (o layout moderno e a melhoria dos ícones, mostrados em prévia, **não** fazem parte
+  desta mudança).
+
+**Validação:** `node --check` em `app.js`, `depara-core.js`, `depara.js` e `sw.js`; `node testes/depara-core.test.cjs` →
+"Tudo confere. (72 conferências)"; arquivos do projeto **idênticos** aos da prévia testada; no navegador, com os arquivos
+**reais do projeto** e o visual atual do app (Firebase simulado): item "DE-PARA" abaixo de Mensagens, criação de cliente,
+envio da planilha de exemplo (cabeçalho achado na linha 4, colunas detectadas, 21 linhas lidas = 16 válidas + 3 erros + 2
+ignoradas), regra, DE-PARA, layout reconhecido no 2º envio, arquivo inválido recusado, `.txt` conferido e download
+bloqueado até confirmar. Testado também nos temas escuro e claro.
+
+**Pendências:** itens 13 a 15 da seção 13 — principalmente **não houve importação de teste no Contmatic**, nem teste com PDF
+real, com o Firestore real ou no celular. **Antes de publicar na `main`:** abrir `admin.html` no Live Server, entrar com a
+conta admin e repetir o roteiro 5 da seção 11 com uma planilha real.
 
 ### 2026-10-24 · v1.1.0 — Pagamento a prazo, parcelas, contínuo, pendentes, Excel e atualização automática
 
