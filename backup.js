@@ -48,7 +48,8 @@ async function admBackup() {
     a.href = URL.createObjectURL(blob); a.download = bkNomeArquivo(); document.body.appendChild(a); a.click();
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
     const resumo = Object.keys(arq.contagens).map((k) => k + ': ' + arq.contagens[k]).join(' · ');
-    bkRotulo('✅ Backup baixado (' + resumo + ' · ' + bkTamanho(texto.length) + ')', '#16a34a');
+    bkRotulo('✅ Backup realizado', '#16a34a');
+    const b = document.getElementById('bk-btn'); if (b) b.title = 'Último backup: ' + resumo + ' · ' + bkTamanho(texto.length);   // o detalhe fica só no balãozinho
   } catch (e) {
     console.error('[backup]', e);
     bkRotulo('⚠️ Backup NÃO foi gerado — tente de novo', '#ef4444');
