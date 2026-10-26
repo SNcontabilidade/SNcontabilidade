@@ -27,6 +27,9 @@ function sgCanon(v) {
   return v;
 }
 const sgIgual = (a, b) => JSON.stringify(sgCanon(a)) === JSON.stringify(sgCanon(b));
+// desde a Fase 2 o cliente atualiza no PRÓPRIO perfil o último acesso, a versão do app e o "trocar senha": esses 3 campos podem
+// legitimamente diferir do cadastro antigo, então a conferência de cópia os ignora
+function sgPerfilEstavel(p) { const o = Object.assign({}, p); ['lastLogin', 'appVersion', 'mustChangePwd'].forEach((k) => { delete o[k]; }); return o; }
 
 // ── estado e tela ────────────────────────────────────────────────────────────
 const sgState = { busy: false, log: [], estado: null };
@@ -191,7 +194,7 @@ async function sgConferir() {
     const clientes = (await fsGet('clients')) || [];
     // a) cópias iguais ao original
     const perfis = new Map((await sgDb().collection('perfil').get()).docs.map((d) => [d.id, d.data()]));
-    let pOk = 0, pSenha = 0; clientes.forEach((c) => { const p = perfis.get(c.id); if (p && sgIgual(p, sgPerfil(c))) pOk++; if (p && 'password' in p) pSenha++; });
+    let pOk = 0, pSenha = 0; clientes.forEach((c) => { const p = perfis.get(c.id); if (p && sgIgual(sgPerfilEstavel(p), sgPerfilEstavel(sgPerfil(c)))) pOk++; if (p && 'password' in p) pSenha++; });
     (pOk === clientes.length ? ok : mal)('perfil: ' + pOk + ' de ' + clientes.length + ' idênticos ao cadastro');
     (pSenha === 0 ? ok : mal)('nenhum perfil contém senha' + (pSenha ? ' (' + pSenha + ' contêm!)' : ''));
     for (const nome of SG_CONFIG_DOCS) {
@@ -238,4 +241,4 @@ function admSeguranca() {
   return '<div id="sg-root">' + sgHTML() + '</div>';
 }
 
-if (typeof module !== 'undefined' && module.exports) module.exports = { sgNormUsuario, sgHashUsuario, sgEmail, sgSenhaAuth, sgPerfil, sgValidarCliente, sgDuplicados, sgIgual, SG_DOMINIO, SG_CONFIG_DOCS, SG_CAMPOS_PERFIL };
+if (typeof module !== 'undefined' && module.exports) module.exports = { sgNormUsuario, sgHashUsuario, sgEmail, sgSenhaAuth, sgPerfil, sgValidarCliente, sgDuplicados, sgIgual, sgPerfilEstavel, SG_DOMINIO, SG_CONFIG_DOCS, SG_CAMPOS_PERFIL };

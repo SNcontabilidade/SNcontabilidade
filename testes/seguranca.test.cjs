@@ -58,6 +58,12 @@ const eq = (nome, got, want) => { const a = JSON.stringify(got), b = JSON.string
   eq('campo a mais é detectado', G.sgIgual({ a: 1 }, { a: 1, b: 2 }), false);
   eq('perfil do Firestore (ordem alfabética) igual ao do cadastro', G.sgIgual({ cnpj: '1', id: 'c1', razaoSocial: 'X', username: 'x' }, G.sgPerfil({ id: 'c1', razaoSocial: 'X', cnpj: '1', username: 'x', password: 's' })), true);
   eq('config cobre os 6 documentos compartilhados', G.SG_CONFIG_DOCS.length, 6);
+  // cliente que já entrou pelo app novo: perfil tem último acesso/versão que o cadastro antigo não tem
+  const antigoCad = G.sgPerfil({ id: 'c1', razaoSocial: 'X', cnpj: '1', username: 'x', mustChangePwd: true, password: 's' });
+  const perfilAtual = { id: 'c1', razaoSocial: 'X', cnpj: '1', username: 'x', mustChangePwd: false, lastLogin: '2026-10-26T01:00:00Z', appVersion: '1.2.0' };
+  eq('perfil após login novo continua "igual" na conferência', G.sgIgual(G.sgPerfilEstavel(perfilAtual), G.sgPerfilEstavel(antigoCad)), true);
+  eq('mas mudar um dado de verdade (CNPJ) ainda é detectado', G.sgIgual(G.sgPerfilEstavel({ ...perfilAtual, cnpj: '2' }), G.sgPerfilEstavel(antigoCad)), false);
+  eq('e mudar o login também', G.sgIgual(G.sgPerfilEstavel({ ...perfilAtual, username: 'y' }), G.sgPerfilEstavel(antigoCad)), false);
 
   // ── janela de convivência: junção do cadastro antigo com o perfil novo ──
   const antigo = { id: 'c1', mustChangePwd: true, appVersion: '1.1.0', lastLogin: '2026-10-01T10:00:00Z' };
