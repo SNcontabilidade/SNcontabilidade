@@ -71,6 +71,8 @@ index.html ainda registra o service worker (sw.js) e faz o recarregamento autom�
 | `backup.js` | **Backup do banco (só admin)**: botão "💾 Backup do banco" na barra lateral que baixa um `.json` com todas as coleções (`BK_COLECOES`). Carregado só pelo `admin.html`; no `app.js` há **1 encaixe** (`bkBotaoHTML` no rodapé da barra). Prefixo `bk*` |
 | `testes/backup.test.cjs` | Testes do backup (`node testes/backup.test.cjs`) |
 | `acesso.js` | **Acesso do cliente (v1.2.0)** — carregado por `index.html` **e** `admin.html`, antes do `app.js`: regras de usuário→conta (`sg*`: hash, e-mail interno, senha do Authentication, `sgPerfil`), login e carga **só dos dados do próprio cliente** (`ac*`: `acEntrar`, `acCarregarCliente`, `acIniciarCliente`), junção do modelo antigo com o novo para o admin (`acMesclarPerfil`, `acUniaoMensagens`, `acMesclarNovoAdmin`) e espelho das configurações (`acEspelharConfig`) |
+| `layout-moderno.css` | **Tema moderno (v1.3.0)**, carregado por `index.html` e `admin.html` **depois** do `style.css` e sobrescrevendo por cima: variáveis de cor/raio/sombra, tipografia Inter, cartões, sidebar, cabeçalho, botões, formulários, login e o **cartão de Saldo** do painel (`.sn-hero`, `.sn-minis`). Só aparência: nenhuma regra de negócio. Tema claro em `body.light` |
+| `layout-moderno.js` | Carregado **depois** do `app.js`: (1) troca só a URL de **entrega** dos ícones do Cloudinary (tamanho, formato, cantos) — nenhum arquivo original muda; (2) `snPainelHero`, o cartão de Saldo que o `screenPainel` chama; (3) envolve `buildClientCharts`/`buildAdminCharts` e restiliza os gráficos (barras com gradiente, rosca com total no centro). Cada bloco é protegido: se falhar, o app segue com o visual simples |
 | `seguranca.js` | **Segurança dos dados, Fases 1–2 (só admin):** tela "Segurança" com 3 botões — criar a conta de acesso de cada cliente no Firebase Authentication (mesma senha de hoje), copiar os dados para coleções por cliente e conferir de ponta a ponta. **Não altera** os dados que o app atual usa. Carregado só pelo `admin.html`; no `app.js` há **3 encaixes** (item de menu, título e roteamento). Prefixo `sg*` |
 | `testes/seguranca.test.cjs` | Testes da parte pura da Fase 1 (`node testes/seguranca.test.cjs`) |
 | `.gitignore` | Impede versionar `backup-sn_*.json`: o backup contém dados de clientes e **nunca** vai para o Git |
@@ -608,7 +610,30 @@ Confirmadas no código em 24/10/2026. Nenhuma foi alterada por não ter sido ped
 > Uma entrada por mudança, **a mais recente no topo**. Formato: data · versão — pedido, feito, decisões e porquês,
 > validação, pendências.
 
-### 2026-10-25 · v1.2.0 (branch `seguranca/fase1-contas`, **ainda não publicada**) — Segurança, Fase 2: o app do cliente passa a entrar pelo Authentication
+### 2026-10-25 · v1.3.0 (branch `layout/moderno-v2`, **ainda não publicada**) — Layout moderno nos dois ambientes (cliente e admin)
+
+**Pedido:** aplicar de verdade a prévia do layout moderno ("versão 2": cartão de Saldo e gráficos refeitos) **no app do cliente e no
+admin**, com os ícones melhorados. Era só prévia no ambiente de teste (ligada por `?v2=1`/`?ui=novo`); nunca tinha entrado no projeto.
+**Feito:** `layout-moderno.css` (tema base + cartão de Saldo, em arquivo único) e `layout-moderno.js` (ícones + cartão + gráficos),
+ligados no `index.html` e no `admin.html`; **um encaixe** no `app.js`: `screenPainel` chama `snPainelHero(...)` no lugar da grade de 6
+cards (com `typeof` — sem o arquivo, volta à grade antiga). `APP_VERSION` 1.3.0, `CACHE_NAME` `sn-v6`, e os dois arquivos novos no cache do `sw.js`.
+**Decisões e porquês:**
+- **Sem as chaves de prévia** (`?v2=1`, `?ui=novo`, `?ic=novo`): o visual é sempre o novo.
+- **Sem o `render()` final** que a prévia tinha: com o login pelo Authentication os scripts carregam antes do 1º desenho real, e esse
+  `render()` mostraria a tela de login por um instante, mesmo para quem já está logado.
+- **O cartão de Saldo usa os mesmos números do painel antigo** (`rec`, `desp`, `outros`, `saldo`, `txs`, `slicerLabel`): nenhum cálculo novo.
+- **`layout-moderno.css` usa `@import` da fonte Inter (Google Fonts):** exige internet na 1ª carga; offline cai nas fontes do sistema.
+- **O CSS é solto** (sobrescreve classes do `style.css`), por isso precisa continuar sendo o **último** CSS do `index.html`; no admin vem
+  antes do `depara.css`, que é todo prefixado `.dp-`.
+**Validação:** `node --check` limpo; testes `seguranca` (54), `backup` (14) e `depara-core` (109) passando. No navegador de teste (Firebase
+simulado, **arquivos reais do projeto**): painel do cliente com cartão, 4 cards, gráficos e pendência; abas Lançamento/Histórico/Mensagens
+sem erro; celular 375px sem rolagem lateral; tema claro e escuro; no admin, as 8 telas (Dashboard, Clientes, Bancos, Descrições, Operações,
+Mensagens, DE-PARA, Segurança) e o botão de backup, sem erro de console. **Não validado:** com dados e login reais, nem em aparelhos
+físicos. **Pendências:** nenhuma de código; aguardar o teste do dono no Live Server antes de publicar.
+
+---
+
+### 2026-10-25 · v1.2.0 (publicada na `main`) — Segurança, Fase 2: o app do cliente passa a entrar pelo Authentication
 
 **Pedido:** seguir o plano — o cliente entra com o **mesmo usuário e senha**, mas por uma conta do Firebase Authentication, e o app
 baixa **só os dados dele** (antes baixava a lista de todos os clientes e os lançamentos de todos para conferir o login no navegador).
