@@ -58,12 +58,23 @@ function sgErroAmigavel(e) {
   if (c === 'permission-denied') return 'SEM PERMISSÃO no banco — publique no console as regras da Fase 1 (arquivo REGRAS-FASE1.txt, fora do Git) e confira se você está logado como admin.';
   if (c === 'auth/operation-not-allowed') return 'E-mail/senha NÃO está ativo em Authentication → Sign-in method.';
   if (c === 'auth/too-many-requests') return 'O Firebase pediu para esperar (muitas tentativas). Aguarde alguns minutos e rode de novo — continua de onde parou.';
-  return (c || (e && e.message) || 'erro desconhecido');
+  return (e && e.message && !c ? e.message : c) || 'erro desconhecido';
 }
 
+// Ao recarregar a página o Firebase leva um instante para restaurar o login do Google. Sem esperar, a 1ª leitura sai SEM login e as
+// regras (que só liberam o admin) respondem "sem permissão". Devolve o usuário logado ou null se não houver login ativo neste endereço.
+function sgAguardarLogin() {
+  return new Promise((resolve) => {
+    let feito = false; const fim = (u) => { if (!feito) { feito = true; resolve(u); } };
+    const desinscrever = firebase.auth().onAuthStateChanged((u) => { desinscrever(); fim(u); });
+    setTimeout(() => fim(firebase.auth().currentUser), 6000);
+  });
+}
+const SG_MSG_SEM_LOGIN = 'Você não está logado com o Google NESTE endereço (o login do localhost não vale para 127.0.0.1 e vice-versa). Clique em "Sair" e entre de novo com o Google.';
 async function sgCarregarEstado() {
   const est = { clientes: 0, vinculos: 0, perfil: 0, config: 0, conversas: 0, leitura: 0, erro: '' };
   try {
+    if (!(await sgAguardarLogin())) { est.erro = SG_MSG_SEM_LOGIN; sgState.estado = est; sgState.t = Date.now(); sgRender(); return; }
     est.clientes = ((await fsGet('clients')) || []).length;
     for (const [k, col] of [['vinculos', 'vinculos'], ['perfil', 'perfil'], ['config', 'config'], ['conversas', 'conversas'], ['leitura', 'leitura']]) est[k] = (await sgDb().collection(col).get()).size;
   } catch (e) { est.erro = sgErroAmigavel(e); }
@@ -76,6 +87,7 @@ async function sgCriarContas() {
   sgLog('Criando contas de acesso…', true);
   let criadas = 0, ja = 0; const falhas = [];
   try {
+    if (!(await sgAguardarLogin())) throw new Error(SG_MSG_SEM_LOGIN);
     const clientes = (await fsGet('clients')) || [];
     const dup = sgDuplicados(clientes);
     if (dup.length) sgLog('⚠ ' + dup.length + ' usuário(s) repetido(s) (mesmo login para clientes diferentes). Esses ficam de fora até serem corrigidos.');
@@ -117,6 +129,7 @@ async function sgCopiarDados() {
   if (sgState.busy) return; sgState.busy = true; sgRender();
   sgLog('Copiando dados para a estrutura nova…', true);
   try {
+    if (!(await sgAguardarLogin())) throw new Error(SG_MSG_SEM_LOGIN);
     const clientes = (await fsGet('clients')) || [];
     const msgs = (await fsGet('clientmessages')) || {}, lidas = (await fsGet('msgread')) || {};
     const ops = [];
@@ -138,6 +151,7 @@ async function sgConferir() {
   sgLog('Conferindo…', true);
   const probs = []; const ok = (t) => sgLog('✔ ' + t), mal = (t) => { probs.push(t); sgLog('✖ ' + t); };
   try {
+    if (!(await sgAguardarLogin())) throw new Error(SG_MSG_SEM_LOGIN);
     const clientes = (await fsGet('clients')) || [];
     // a) cópias iguais ao original
     const perfis = new Map((await sgDb().collection('perfil').get()).docs.map((d) => [d.id, d.data()]));
