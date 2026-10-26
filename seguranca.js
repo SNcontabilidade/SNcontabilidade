@@ -3,25 +3,11 @@
 // cliente, com a MESMA senha de hoje, e COPIA os dados para coleções por cliente. Não altera nada do que o app
 // atual usa (sn/*, sntx/*). Carregado só pelo admin.html. Prefixo sg*.
 //
-// Como o cliente será identificado (Fase 2): usuário → hash → "e-mail" interno + senha com prefixo.
-//   e-mail  = c<hash>.<n>@acesso.sn.invalid   (n = versão da conta; sobe quando o admin faz "reset de senha")
-//   senha   = 'sn#' + senha digitada          (o Firebase exige 6+ caracteres; a senha inicial tem 5)
-// Coleções novas:  vinculos/{uid} {clienteId,n}   loginmeta/{hash} {n}   perfil/{id}   conversas/{id}
-//                  leitura/{id}   config/{doc}.   As regras estão num arquivo local (fora do Git).
-
-const SG_DOMINIO = 'acesso.sn.invalid';
-const SG_CONFIG_DOCS = ['banks', 'descriptions', 'customops', 'custombankicons', 'descriptionops', 'messages'];
-const SG_CAMPOS_PERFIL = ['id', 'razaoSocial', 'cnpj', 'email', 'username', 'mustChangePwd', 'createdAt', 'appVersion', 'lastLogin'];   // SEM senha
+// As regras de usuário → conta (hash, e-mail interno, senha do Authentication, perfil sem senha) vivem em acesso.js, que o
+// admin.html carrega antes deste arquivo. Coleções novas: vinculos/{uid} {clienteId,n}  loginmeta/{hash} {n,...}  perfil/{id}
+// conversas/{id}  leitura/{id}  config/{doc}. As regras do Firestore ficam num arquivo local (fora do Git).
 
 // ── núcleo puro (testado no Node) ────────────────────────────────────────────
-function sgNormUsuario(u) { return String(u == null ? '' : u).trim().toLowerCase(); }
-async function sgHashUsuario(u) {
-  const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('sn|' + sgNormUsuario(u)));
-  return Array.from(new Uint8Array(d)).map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 24);
-}
-function sgEmail(hash, n) { return 'c' + hash + '.' + (n || 0) + '@' + SG_DOMINIO; }
-function sgSenhaAuth(s) { return 'sn#' + String(s == null ? '' : s); }
-function sgPerfil(c) { const o = {}; SG_CAMPOS_PERFIL.forEach((k) => { if (c[k] !== undefined) o[k] = c[k]; }); return o; }
 function sgValidarCliente(c) {
   if (!c || !c.id) return 'cliente sem id';
   if (!sgNormUsuario(c.username)) return 'sem usuário';
@@ -59,6 +45,56 @@ function sgErroAmigavel(e) {
   if (c === 'auth/operation-not-allowed') return 'E-mail/senha NÃO está ativo em Authentication → Sign-in method.';
   if (c === 'auth/too-many-requests') return 'O Firebase pediu para esperar (muitas tentativas). Aguarde alguns minutos e rode de novo — continua de onde parou.';
   return (e && e.message && !c ? e.message : c) || 'erro desconhecido';
+}
+
+// ── admin: mantém o modelo novo em dia enquanto o antigo ainda existe (janela de convivência) ──
+// Tudo aqui é "melhor esforço": se falhar, avisa no console e o botão 2 da tela (Copiar dados) refaz a cópia inteira.
+async function sgEspelharPerfil(c) {
+  if (!c || !c.id) return;
+  try { await sgDb().collection('perfil').doc(c.id).set(sgPerfil(c)); } catch (e) { console.warn('[espelho] perfil', e && e.code); }
+}
+async function sgEspelharConversa(cid) {
+  try { await sgDb().collection('conversas').doc(cid).set({ msgs: (S.clientMessages && S.clientMessages[cid]) || [] }); } catch (e) { console.warn('[espelho] conversa', e && e.code); }
+}
+// cria (ou reaproveita) a conta de acesso do cliente e liga ao vínculo. n = versão da conta. Devolve o uid.
+async function sgCriarAcessoCliente(c, senha, n) {
+  const h = await sgHashUsuario(c.username), email = sgEmail(h, n || 0), pw = sgSenhaAuth(senha), sec = sgAppSecundario();
+  let uid = null;
+  try { uid = (await sec.auth().createUserWithEmailAndPassword(email, pw)).user.uid; }
+  catch (e) {
+    if (e.code !== 'auth/email-already-in-use') throw e;
+    try { uid = (await sec.auth().signInWithEmailAndPassword(email, pw)).user.uid; } catch (e2) { throw new Error('já existe uma conta com este login e outra senha'); }
+  }
+  const b = sgDb().batch();
+  b.set(sgDb().collection('vinculos').doc(uid), { clienteId: c.id, n: n || 0, criadoEm: new Date().toISOString() });
+  b.set(sgDb().collection('loginmeta').doc(h), { n: n || 0 });
+  await b.commit();
+  try { await sec.auth().signOut(); } catch (e) { /* segue */ }
+  return uid;
+}
+// desliga os acessos antigos do cliente (apaga os vínculos; a conta do Authentication fica sem efeito). `manterUid` = o acesso novo.
+async function sgRevogarAcessos(clienteId, manterUid, usuarioAntigo) {
+  const snap = await sgDb().collection('vinculos').where('clienteId', '==', clienteId).get();
+  const b = sgDb().batch(); let n = 0;
+  snap.docs.forEach((d) => { if (d.id !== manterUid) { b.delete(d.ref); n++; } });
+  if (usuarioAntigo) b.delete(sgDb().collection('loginmeta').doc(await sgHashUsuario(usuarioAntigo)));
+  await b.commit(); return n;
+}
+// volta o cliente à senha inicial: cria a conta nova ANTES de desligar a antiga (nunca deixa o cliente sem acesso por falha no meio)
+async function sgResetarAcesso(c) {
+  const meta = await sgDb().collection('loginmeta').doc(await sgHashUsuario(c.username)).get();
+  const n = (meta.exists ? Number((meta.data() || {}).n) || 0 : 0) + 1;
+  const uid = await sgCriarAcessoCliente(c, '12345', n);
+  await sgRevogarAcessos(c.id, uid, null);
+}
+// o login (usuário) mudou: cria o acesso do login novo com a senha inicial e desliga o do login antigo
+async function sgTrocarLoginAcesso(c, usuarioAntigo) {
+  const uid = await sgCriarAcessoCliente(c, '12345', 0);
+  await sgRevogarAcessos(c.id, uid, usuarioAntigo);
+}
+async function sgApagarAcessoECopias(c) {
+  await sgRevogarAcessos(c.id, null, c.username);
+  const b = sgDb().batch(); ['perfil', 'conversas', 'leitura'].forEach((col) => b.delete(sgDb().collection(col).doc(c.id))); await b.commit();
 }
 
 // Ao recarregar a página o Firebase leva um instante para restaurar o login do Google. Sem esperar, a 1ª leitura sai SEM login e as

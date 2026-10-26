@@ -70,7 +70,8 @@ index.html ainda registra o service worker (sw.js) e faz o recarregamento autom�
 | `testes/exemplo-depara.xlsx` | Planilha de exemplo **propositalmente bagunçada** (dados fictícios) para testar o DE-PARA |
 | `backup.js` | **Backup do banco (só admin)**: botão "💾 Backup do banco" na barra lateral que baixa um `.json` com todas as coleções (`BK_COLECOES`). Carregado só pelo `admin.html`; no `app.js` há **1 encaixe** (`bkBotaoHTML` no rodapé da barra). Prefixo `bk*` |
 | `testes/backup.test.cjs` | Testes do backup (`node testes/backup.test.cjs`) |
-| `seguranca.js` | **Segurança dos dados, Fase 1 (só admin):** tela "Segurança" com 3 botões — criar a conta de acesso de cada cliente no Firebase Authentication (mesma senha de hoje), copiar os dados para coleções por cliente e conferir de ponta a ponta. **Não altera** os dados que o app atual usa. Carregado só pelo `admin.html`; no `app.js` há **3 encaixes** (item de menu, título e roteamento). Prefixo `sg*` |
+| `acesso.js` | **Acesso do cliente (v1.2.0)** — carregado por `index.html` **e** `admin.html`, antes do `app.js`: regras de usuário→conta (`sg*`: hash, e-mail interno, senha do Authentication, `sgPerfil`), login e carga **só dos dados do próprio cliente** (`ac*`: `acEntrar`, `acCarregarCliente`, `acIniciarCliente`), junção do modelo antigo com o novo para o admin (`acMesclarPerfil`, `acUniaoMensagens`, `acMesclarNovoAdmin`) e espelho das configurações (`acEspelharConfig`) |
+| `seguranca.js` | **Segurança dos dados, Fases 1–2 (só admin):** tela "Segurança" com 3 botões — criar a conta de acesso de cada cliente no Firebase Authentication (mesma senha de hoje), copiar os dados para coleções por cliente e conferir de ponta a ponta. **Não altera** os dados que o app atual usa. Carregado só pelo `admin.html`; no `app.js` há **3 encaixes** (item de menu, título e roteamento). Prefixo `sg*` |
 | `testes/seguranca.test.cjs` | Testes da parte pura da Fase 1 (`node testes/seguranca.test.cjs`) |
 | `.gitignore` | Impede versionar `backup-sn_*.json`: o backup contém dados de clientes e **nunca** vai para o Git |
 | `app.js` | Toda a aplicação (constantes, estado, Firestore, login, admin, cliente, relatório, gráficos, init) |
@@ -196,14 +197,21 @@ exportação (`exportOpen`) e Sheets (`googleToken`, `sheetsStatus`, `syncProgre
 
 ## 6. Autenticação e segurança
 
-- **Cliente:** `doLogin` confere `username` (sem caixa) e senha contra os clientes carregados do Firestore. Cliente novo
-  entra com uma senha inicial e `mustChangePwd:true` → tela "Primeiro Acesso" (`pageChangePwd`), mínimo 6 caracteres;
-  "Reset senha" (admin) volta à senha inicial.
+- **Cliente (v1.2.0):** `doLogin` → `acEntrar` (`acesso.js`): usuário+senha viram uma conta do **Firebase Authentication** e,
+  só depois de entrar, `acCarregarCliente` baixa **apenas os dados dele** (perfil, lançamentos, conversa e configurações) —
+  nunca a lista de clientes. O cliente usa uma **instância própria** do Firebase (`acApp()`/`acFirestore()`/`acAuth()`), para
+  entrar como cliente não derrubar o login do Google do admin no mesmo navegador; a sessão vale só na aba. Cliente novo
+  entra com a senha inicial e `mustChangePwd:true` → "Primeiro Acesso" (`pageChangePwd`), que troca a senha no Authentication
+  (`doChangePwd`). "Reset senha" (admin) volta à senha inicial criando uma conta nova (`sgResetarAcesso`). **Não mude** o hash
+  do usuário, o prefixo da senha nem o formato do e-mail interno (`acesso.js`): derrubaria todos os logins (há teste que fixa isso).
 - **Admin:** `signInWithPopup` Google; só entra se `email === ADMIN_EMAIL`, senão faz `signOut`. Pede o escopo
   `spreadsheets` para o Sheets.
-- **A validação de acesso do cliente acontece no navegador**, então a proteção real dos dados depende das regras do
-  Firestore, configuradas no console (fora do repositório). A revisão de segurança está em andamento e seu plano é
-  mantido **fora do repositório público** (ver [Pendências](#13-pendências-e-armadilhas-conhecidas), item 3).
+- **A proteção real dos dados depende das regras do Firestore**, configuradas no console (fora do repositório). A revisão de
+  segurança está em andamento por fases e seu plano é mantido **fora do repositório público** (ver
+  [Pendências](#13-pendências-e-armadilhas-conhecidas), item 3).
+- **Janela de convivência:** enquanto houver clientes na versão antiga do app, o admin grava nos dois modelos (o antigo e o novo:
+  `config`, `perfil`, `conversas`) e, ao carregar, junta o que a versão nova gravou (`acMesclarNovoAdmin`). Quem não atualizou
+  continua funcionando. Fechar o modelo antigo é uma fase à parte, **só depois** de conferir a versão de cada cliente.
 - **Escape:** texto digitado vindo do Firestore deve passar por `esc()` antes de virar `innerHTML`. Mantenha.
 - `confirm()`/`alert()` são usados (remoção de cliente/lançamento, validações). Funcionam no site; **não** funcionam
   dentro de `iframe` com `sandbox` (ex.: Google Sites).
@@ -599,6 +607,36 @@ Confirmadas no código em 24/10/2026. Nenhuma foi alterada por não ter sido ped
 
 > Uma entrada por mudança, **a mais recente no topo**. Formato: data · versão — pedido, feito, decisões e porquês,
 > validação, pendências.
+
+### 2026-10-25 · v1.2.0 (branch `seguranca/fase1-contas`, **ainda não publicada**) — Segurança, Fase 2: o app do cliente passa a entrar pelo Authentication
+
+**Pedido:** seguir o plano — o cliente entra com o **mesmo usuário e senha**, mas por uma conta do Firebase Authentication, e o app
+baixa **só os dados dele** (antes baixava a lista de todos os clientes e os lançamentos de todos para conferir o login no navegador).
+**Feito:** `acesso.js` (novo, compartilhado); `app.js` — `doLogin` assíncrono, `doChangePwd` via `updatePassword`, `doLogout` limpa os
+dados, `INIT` do cliente **não baixa nada antes do login** e restaura a sessão da aba; `fsGet/fsSet/fsGetTx/fsSetTx` passaram a usar
+`acFirestore()` (instância própria no cliente, padrão no admin); mensagens do cliente gravam em `conversas/{id}` e `leitura/{id}`;
+no admin, `fsSet` espelha os documentos compartilhados em `config/`, `saveClientMessages(cid)` espelha a conversa, e criar, editar o
+login, resetar senha e remover cliente passam a manter também o acesso novo (`sgCriarAcessoCliente`, `sgTrocarLoginAcesso`,
+`sgResetarAcesso`, `sgApagarAcessoECopias`). `APP_VERSION` 1.2.0 e `CACHE_NAME` `sn-v5`; `acesso.js` entrou no `index.html`,
+`admin.html` e no cache do `sw.js`.
+**Decisões e porquês:**
+- **Instância própria do Firebase no cliente** (`'cliente'`): sem ela, abrir o app do cliente no mesmo navegador do admin trocava o
+  usuário logado e as gravações do admin passavam a falhar.
+- **Sessão só na aba** (`Persistence.SESSION`): mantém o comportamento antigo (`sessionStorage`).
+- **A senha nova do cliente vai só para o Authentication**; o cadastro antigo não é atualizado (só serve à versão antiga do app, que
+  some na fase final). Por isso o admin deixa de enxergar a senha e o **reset** cria uma conta nova (versão `n+1`) antes de desligar a antiga.
+- **Mudar o login de um cliente volta a senha dele para a inicial** (a senha atual é desconhecida do admin).
+- **mustChangePwd na junção:** só é "padrão" se nenhuma das duas versões disser que a senha já foi trocada.
+- **Erros de login iguais** para usuário inexistente e senha errada (não revelam se o usuário existe).
+**Validação:** `node testes/seguranca.test.cjs` (51), `backup.test.cjs` (14), `depara-core.test.cjs` (109); `node --check` limpo. No
+navegador, com Firebase **simulado** e o `app.js` real: senha errada e usuário inexistente (mesma mensagem), login em maiúsculas,
+só os documentos do próprio cliente lidos, nenhum campo de senha no estado, logout limpa tudo, primeiro acesso (senha curta, não
+coincide, troca), senha nova **nunca** vai para o banco, senha antiga deixa de valer, restauração da sessão e abertura sem login sem
+baixar nada. **Não validado:** com o Firebase real (rodar no Live Server com um cliente de teste criado pelo admin), e as regras
+precisam estar publicadas no console antes de publicar este app. **Pendências:** Fase 3 (janela de convivência) e Fase 4 (fechar o
+modelo antigo, só depois de conferir as versões dos clientes).
+
+---
 
 ### 2026-10-25 · v1.1.0 (versão **não** subida) — Segurança dos dados, Fase 1: contas de acesso e estrutura por cliente (preparação)
 

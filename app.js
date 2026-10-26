@@ -1,4 +1,4 @@
-const APP_VERSION = '1.1.0';  // Atualize aqui a cada nova versão
+const APP_VERSION = '1.2.0';  // Atualize aqui a cada nova versão
 const LOGO_DARK='https://res.cloudinary.com/dk10wezy9/image/upload/v1777137104/SN_Branco_m3jaiw.png';
 const LOGO_LIGHT='https://res.cloudinary.com/dk10wezy9/image/upload/v1777137105/SN_Solu%C3%A7%C3%B5es_Contabeis_wnt1wv.png';
 const getLogo=()=>document.body.classList.contains('light')?LOGO_LIGHT:LOGO_DARK;
@@ -131,11 +131,13 @@ const S={
 };
 
 // ─── FIRESTORE ────────────────────────────────────────────────────────────────
-async function fsGet(docId){try{const snap=await firebase.firestore().collection('sn').doc(docId).get();return snap.exists?snap.data().value:null;}catch(e){console.error('fsGet',e);return null;}}
-async function fsSet(docId,value){try{await firebase.firestore().collection('sn').doc(docId).set({value});}catch(e){console.error('fsSet error',docId,e);throw e;}}
+// acFirestore(): no site do cliente é a instância própria 'cliente' (login do cliente); no admin é a padrão (login Google)
+async function fsGet(docId){try{const snap=await acFirestore().collection('sn').doc(docId).get();return snap.exists?snap.data().value:null;}catch(e){console.error('fsGet',e);return null;}}
+// admin: além do documento antigo, espelha os compartilhados em config/<nome> (janela de convivência com a versão antiga do app)
+async function fsSet(docId,value){try{await acFirestore().collection('sn').doc(docId).set({value});acEspelharConfig(docId,value);}catch(e){console.error('fsSet error',docId,e);throw e;}}
 // Por cliente: salva lançamentos num documento separado para evitar limite de 1MB
-async function fsGetTx(clientId){try{const snap=await firebase.firestore().collection('sntx').doc(clientId).get();return snap.exists?snap.data().txs:null;}catch(e){console.error('fsGetTx',e);return null;}}
-async function fsSetTx(clientId,txs){try{await firebase.firestore().collection('sntx').doc(clientId).set({txs});}catch(e){console.error('fsSetTx error',clientId,e);throw e;}}
+async function fsGetTx(clientId){try{const snap=await acFirestore().collection('sntx').doc(clientId).get();return snap.exists?snap.data().txs:null;}catch(e){console.error('fsGetTx',e);return null;}}
+async function fsSetTx(clientId,txs){try{await acFirestore().collection('sntx').doc(clientId).set({txs});}catch(e){console.error('fsSetTx error',clientId,e);throw e;}}
 
 async function loadAll(){
   document.getElementById('app').innerHTML='<div class="center-page" style="color:var(--muted);font-size:14px">⏳ Carregando dados...</div>';
@@ -180,6 +182,7 @@ async function loadAll(){
   S.messages=Array.isArray(messages)?messages:[];
   S.msgRead=(msgRead&&typeof msgRead==='object'&&!Array.isArray(msgRead))?msgRead:{};
   S.clientMessages=(clientMessages&&typeof clientMessages==='object'&&!Array.isArray(clientMessages))?clientMessages:{};
+  await acMesclarNovoAdmin();   // admin: junta o que os clientes da versão nova gravaram no modelo novo (acesso, versão, conversas)
   // Pré-popula descriptionOps a partir dos defaults se vazio
   if(!descriptionOps){
     Object.entries(OP_DESCRIPTIONS_DEFAULT).forEach(([op,descs])=>{
@@ -209,8 +212,16 @@ function saveCustomOps()       {return fsSet('customops',S.customOps);}
 function saveCustomBankIcons() {return fsSet('custombankicons',S.customBankIcons);}
 function saveDescriptionOps()  {return fsSet('descriptionops',S.descriptionOps);}
 function saveMessages()        {return fsSet('messages',S.messages);}
-function saveMsgRead()         {return fsSet('msgread',S.msgRead);}
-function saveClientMessages()  {return fsSet('clientmessages',S.clientMessages);}
+// Cliente (versão nova): grava só no próprio documento. Admin: grava o modelo antigo (união) e espelha a conversa do cliente em questão.
+function saveMsgRead(){
+  if(!IS_ADMIN_PAGE){const id=S.session?.clientId;return acFirestore().collection('leitura').doc(id).set({lido:S.msgRead[id]||''});}
+  return fsSet('msgread',S.msgRead);
+}
+async function saveClientMessages(cid){
+  if(!IS_ADMIN_PAGE){const id=S.session?.clientId;return acFirestore().collection('conversas').doc(id).set({msgs:S.clientMessages[id]||[]});}
+  await fsSet('clientmessages',S.clientMessages);
+  if(cid&&typeof sgEspelharConversa==='function')await sgEspelharConversa(cid);
+}
 
 const uid=()=>Math.random().toString(36).slice(2,10)+Date.now().toString(36);
 const todayStr=()=>new Date().toISOString().slice(0,10);
@@ -298,18 +309,25 @@ function pageLoginAdmin(){return`<div class="center-page">
   </div>
   <div style="position:fixed;bottom:16px;left:0;right:0;text-align:center;font-size:11px;color:var(--muted);letter-spacing:.02em">© Desenvolvido por <strong style="color:var(--accent)">Kelvin Santos</strong> &nbsp;·&nbsp; <span style="opacity:.6">v${APP_VERSION}</span></div>
 </div>`;}
-function doLogin(){
-  const u=q('#login-user').value.trim(),p=q('#login-pass').value;
-  const c=S.clients.find(x=>x.username.toLowerCase()===u.toLowerCase()&&x.password===p);
-  if(c){
-    S.session={isAdmin:false,clientId:c.id};
+// Login do cliente: usuário+senha → conta do Authentication (acesso.js). Só DEPOIS de entrar o app baixa os dados — e só os dele.
+let _loginOcupado=false;
+async function doLogin(){
+  if(_loginOcupado)return;
+  const u=q('#login-user').value.trim(),p=q('#login-pass').value,err=q('#login-err');
+  if(!u||!p){err.textContent='Informe usuário e senha.';return;}
+  _loginOcupado=true;err.textContent='Entrando…';
+  try{
+    const r=await acEntrar(u,p);
+    if(!r.ok){err.textContent=r.msg;return;}
+    try{await acCarregarCliente(r.clienteId);}
+    catch(e){console.error('[login] carregar',e);err.textContent='Não foi possível carregar seus dados. Tente de novo ou fale com o escritório.';await acAuth().signOut().catch(()=>{});return;}
+    S.session={isAdmin:false,clientId:r.clienteId};   // antes de getClient(), que depende da sessão
+    const c=getClient();
     sessionStorage.setItem('sn:session',JSON.stringify(S.session));
-    // Salva versão e último acesso do cliente
-    S.clients=S.clients.map(x=>x.id===c.id?{...x,appVersion:APP_VERSION,lastLogin:new Date().toISOString()}:x);
-    saveClients();
-    S.page=c.mustChangePwd?'changepwd':'client';render();return;
-  }
-  q('#login-err').textContent='Usuário ou senha inválidos.';
+    acRegistrarAcesso(r.clienteId);   // versão do app e último acesso, no próprio perfil
+    S.clients=S.clients.map(x=>x.id===r.clienteId?{...x,appVersion:APP_VERSION,lastLogin:new Date().toISOString()}:x);
+    S.page=c&&c.mustChangePwd?'changepwd':'client';render();
+  }finally{_loginOcupado=false;}
 }
 async function doGoogleLogin(){
   const errEl=q('#login-err');
@@ -328,8 +346,25 @@ async function doGoogleLogin(){
   }catch(e){if(errEl)errEl.textContent='Erro ao autenticar: '+(e.message||'tente novamente');}
 }
 function pageChangePwd(){return`<div class="center-page"><img src="${getLogo()}" style="width:140px;margin-bottom:24px;object-fit:contain" alt="SN" onerror="this.style.display='none'"/><div class="card" style="width:100%;max-width:360px"><h3 style="color:var(--accent);margin-bottom:6px">Primeiro Acesso</h3><p style="color:var(--muted);font-size:13px;margin-bottom:20px">Crie uma senha pessoal para continuar.</p><div class="field"><label class="label">Nova Senha</label><input id="cp-pass" type="password" class="inp"/></div><div class="field"><label class="label">Confirmar</label><input id="cp-conf" type="password" class="inp" onkeydown="if(event.key==='Enter')doChangePwd()"/></div><p id="cp-err" class="err"></p><button class="btn btn-acc btn-full" style="padding:12px" onclick="doChangePwd()">Confirmar Nova Senha</button></div></div>`;}
-function doChangePwd(){const p=q('#cp-pass').value,c=q('#cp-conf').value,err=q('#cp-err');if(p.length<6){err.textContent='Mínimo 6 caracteres.';return;}if(p!==c){err.textContent='As senhas não coincidem.';return;}const client=getClient();S.clients=S.clients.map(x=>x.id===client.id?{...x,password:p,mustChangePwd:false}:x);saveClients();S.page='client';render();}
-function doLogout(){firebase.auth().signOut().catch(()=>{});S.session=null;S.googleToken='';sessionStorage.removeItem('sn:session');sessionStorage.removeItem('sn:googleToken');S.selectedOp=null;S.comprovante='';S.uploadingComp=false;S.menuOpen=false;S.filterOpen=false;S.editTxId=null;S.page='login';render();}
+// Troca de senha do cliente: a senha nova vai para o Authentication (guardada com hash pelo Google), nunca para o banco
+async function doChangePwd(){
+  const p=q('#cp-pass').value,c=q('#cp-conf').value,err=q('#cp-err');
+  if(p.length<6){err.textContent='Mínimo 6 caracteres.';return;}
+  if(p!==c){err.textContent='As senhas não coincidem.';return;}
+  const client=getClient(),user=acAuth().currentUser;
+  if(!client||!user){err.textContent='Sua sessão expirou. Saia e entre de novo.';return;}
+  err.textContent='Salvando…';
+  try{
+    await user.updatePassword(sgSenhaAuth(p));
+    await acFirestore().collection('perfil').doc(client.id).set({mustChangePwd:false},{merge:true});
+    S.clients=S.clients.map(x=>x.id===client.id?{...x,mustChangePwd:false}:x);
+    S.page='client';render();
+  }catch(e){
+    console.error('[senha]',e);
+    err.textContent=e&&e.code==='auth/requires-recent-login'?'Por segurança, saia e entre de novo para trocar a senha.':'Não foi possível trocar a senha agora. Tente de novo.';
+  }
+}
+function doLogout(){acAuth().signOut().catch(()=>{});if(!IS_ADMIN_PAGE)acLimparDados();S.session=null;S.googleToken='';sessionStorage.removeItem('sn:session');sessionStorage.removeItem('sn:googleToken');S.selectedOp=null;S.comprovante='';S.uploadingComp=false;S.menuOpen=false;S.filterOpen=false;S.editTxId=null;S.page='login';render();}
 
 // ─── ADMIN SHELL ──────────────────────────────────────────────────────────────
 function pageAdmin(){
@@ -421,14 +456,25 @@ function saveClientForm(){
   if(!/^[^\s]+$/.test(username)){err.textContent='Login não pode ter espaços.';return;}
   const duplicate=S.clients.find(c=>c.username.toLowerCase()===username.toLowerCase()&&c.id!==S.editClientId);
   if(duplicate){err.textContent='Este login já está em uso por outro cliente.';return;}
-  if(S.editClientId){S.clients=S.clients.map(c=>c.id===S.editClientId?{...c,razaoSocial:rs,cnpj,email,username}:c);}
-  else{const newClient={id:uid(),razaoSocial:rs,cnpj,email,username,password:'12345',mustChangePwd:true,createdAt:new Date().toISOString()};
+  let acessoNovo=null; // função que cria/ajusta o acesso (Authentication) do cliente depois de salvar
+  if(S.editClientId){
+    const antigo=S.clients.find(c=>c.id===S.editClientId);
+    const loginMudou=antigo&&antigo.username.trim().toLowerCase()!==username.trim().toLowerCase();
+    S.clients=S.clients.map(c=>c.id===S.editClientId?{...c,razaoSocial:rs,cnpj,email,username,...(loginMudou?{password:'12345',mustChangePwd:true}:{})}:c);
+    const novo=S.clients.find(c=>c.id===S.editClientId);
+    // trocar o LOGIN troca a conta de acesso: a senha volta para a inicial (a senha atual do cliente não é conhecida do admin)
+    acessoNovo=async()=>{if(loginMudou&&typeof sgTrocarLoginAcesso==='function'){await sgTrocarLoginAcesso(novo,antigo.username);alert('O login foi alterado, então a senha deste cliente voltou para a inicial (ele troca no próximo acesso).');}await sgEspelharPerfil(novo);};
+  }else{const newClient={id:uid(),razaoSocial:rs,cnpj,email,username,password:'12345',mustChangePwd:true,createdAt:new Date().toISOString()};
   S.clients.push(newClient);
-  sheetsCreateClientTab(newClient);}
+  sheetsCreateClientTab(newClient);
+  acessoNovo=async()=>{await sgCriarAcessoCliente(newClient,'12345',0);await sgEspelharPerfil(newClient);};}
   saveClients();S.showClientForm=false;S.editClientId=null;render();
+  if(acessoNovo&&typeof sgCriarAcessoCliente==='function')acessoNovo().catch(e=>{console.error('[acesso]',e);alert('O cliente foi salvo, mas o ACESSO NOVO dele não pôde ser criado ('+(e&&(e.code||e.message)||'erro')+'). Abra o menu Segurança e clique em "1. Criar contas de acesso".');});
 }
-function deleteClient(id){if(!confirm('Remover este cliente e todos os seus dados?'))return;S.clients=S.clients.filter(c=>c.id!==id);delete S.txMap[id];saveClients();try{firebase.firestore().collection('sntx').doc(id).delete();}catch{}render();}
-function resetClientPwd(id){const c=S.clients.find(x=>x.id===id);if(!c||!confirm(`Resetar senha de ${c.razaoSocial}?`))return;S.clients=S.clients.map(x=>x.id===id?{...x,password:'12345',mustChangePwd:true}:x);saveClients();render();}
+function deleteClient(id){if(!confirm('Remover este cliente e todos os seus dados?'))return;const alvo=S.clients.find(c=>c.id===id);S.clients=S.clients.filter(c=>c.id!==id);delete S.txMap[id];saveClients();try{firebase.firestore().collection('sntx').doc(id).delete();}catch{}if(alvo&&typeof sgApagarAcessoECopias==='function')sgApagarAcessoECopias(alvo).catch(e=>console.warn('[acesso] apagar',e&&e.code));render();}
+function resetClientPwd(id){const c=S.clients.find(x=>x.id===id);if(!c||!confirm(`Resetar senha de ${c.razaoSocial}?`))return;S.clients=S.clients.map(x=>x.id===id?{...x,password:'12345',mustChangePwd:true}:x);saveClients();render();
+  const novo=S.clients.find(x=>x.id===id);
+  if(typeof sgResetarAcesso==='function')sgResetarAcesso(novo).then(()=>sgEspelharPerfil(novo)).catch(e=>{console.error('[acesso]',e);alert('A senha foi resetada no cadastro, mas o acesso novo NÃO foi atualizado ('+(e&&(e.code||e.message)||'erro')+'). Tente de novo ou use o menu Segurança.');});}
 
 // ─── CLIENT DETAIL (admin) ────────────────────────────────────────────────────
 function openClientDetail(id){S.viewClientId=id;S.adminView='client-detail';render();}
@@ -811,7 +857,7 @@ function totalUnreadClientMsgs(){
 async function markClientMsgsRead(clientId){
   if(!S.clientMessages?.[clientId])return;
   S.clientMessages[clientId]=S.clientMessages[clientId].map(m=>({...m,readByAdmin:true}));
-  await saveClientMessages();
+  await saveClientMessages(clientId);
 }
 
 // Admin: responde para um cliente específico
@@ -823,7 +869,7 @@ async function sendAdminReply(clientId){
   if(!Array.isArray(S.clientMessages[clientId]))S.clientMessages[clientId]=[];
   S.clientMessages[clientId].push({id:uid(),text,sentAt:new Date().toISOString(),readByAdmin:true,fromAdmin:true});
   S.replyTexts[clientId]='';
-  render();await saveClientMessages();
+  render();await saveClientMessages(clientId);
 }
 function updateReplyCount(clientId){
   const el=q(`#reply-count-${clientId}`);
@@ -1606,8 +1652,14 @@ function buildClientCharts(){
 // INIT
 S.txDate=todayStr();
 applyTheme();
-const _savedSession=sessionStorage.getItem('sn:session');
-if(_savedSession){try{S.session=JSON.parse(_savedSession);S.page=S.session.isAdmin?'admin':'client';}catch{}}
-const _savedToken=sessionStorage.getItem('sn:googleToken');
-if(_savedToken)S.googleToken=_savedToken;
-loadAll().then(()=>render());
+if(IS_ADMIN_PAGE){
+  const _savedSession=sessionStorage.getItem('sn:session');
+  if(_savedSession){try{S.session=JSON.parse(_savedSession);S.page=S.session.isAdmin?'admin':'client';}catch{}}
+  const _savedToken=sessionStorage.getItem('sn:googleToken');
+  if(_savedToken)S.googleToken=_savedToken;
+  loadAll().then(()=>render());
+}else{
+  // Cliente: não baixa nada antes do login. Se já há login nesta aba, restaura e carrega SÓ os dados dele.
+  document.getElementById('app').innerHTML='<div class="center-page" style="color:var(--muted);font-size:14px">⏳ Carregando...</div>';
+  acIniciarCliente().then(()=>render());
+}

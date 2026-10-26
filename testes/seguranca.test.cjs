@@ -1,7 +1,9 @@
-// Testes da Fase 1 de segurança (parte pura) — rodar, da raiz do projeto: node testes/seguranca.test.cjs
+// Testes da Fase 1/2 de segurança (partes puras) — rodar, da raiz do projeto: node testes/seguranca.test.cjs   (sem dependências)
+// acesso.js + seguranca.js são carregados juntos, como no admin.html (acesso.js vem primeiro).
 const fs = require('fs'), path = require('path');
+const rd = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
 const m = { exports: {} };
-new Function('module', fs.readFileSync(path.join(__dirname, '..', 'seguranca.js'), 'utf8'))(m);
+new Function('module', rd('acesso.js') + '\n' + rd('seguranca.js') + '\nmodule.exports = Object.assign({}, module.exports, { acMesclarPerfil, acUniaoMensagens, acMsgErro });')(m);
 const G = m.exports;
 let ok = 0, falhas = 0;
 const eq = (nome, got, want) => { const a = JSON.stringify(got), b = JSON.stringify(want); if (a === b) ok++; else { falhas++; console.log('✖', nome, '\n   obtido :', a, '\n   esperado:', b); } };
@@ -18,6 +20,7 @@ const eq = (nome, got, want) => { const a = JSON.stringify(got), b = JSON.string
   // e-mail interno
   const em = G.sgEmail(h1, 0);
   eq('e-mail interno válido', /^c[0-9a-f]{24}\.0@acesso\.sn\.invalid$/.test(em), true);
+  eq('e-mail do usuário "teste" é estável', G.sgEmail('e1d34c73af2f20168439eabd', 0), 'ce1d34c73af2f20168439eabd.0@acesso.sn.invalid');
   eq('versão da conta sobe no reset', G.sgEmail(h1, 2).includes('.2@'), true);
   eq('sem n usa 0', G.sgEmail(h1), em);
   eq('e-mail não revela o usuário', em.includes('finplast'), false);
@@ -55,6 +58,33 @@ const eq = (nome, got, want) => { const a = JSON.stringify(got), b = JSON.string
   eq('campo a mais é detectado', G.sgIgual({ a: 1 }, { a: 1, b: 2 }), false);
   eq('perfil do Firestore (ordem alfabética) igual ao do cadastro', G.sgIgual({ cnpj: '1', id: 'c1', razaoSocial: 'X', username: 'x' }, G.sgPerfil({ id: 'c1', razaoSocial: 'X', cnpj: '1', username: 'x', password: 's' })), true);
   eq('config cobre os 6 documentos compartilhados', G.SG_CONFIG_DOCS.length, 6);
+
+  // ── janela de convivência: junção do cadastro antigo com o perfil novo ──
+  const antigo = { id: 'c1', mustChangePwd: true, appVersion: '1.1.0', lastLogin: '2026-10-01T10:00:00Z' };
+  eq('sem perfil, fica o antigo', G.acMesclarPerfil(antigo, undefined), antigo);
+  eq('acesso mais recente (perfil) vence: versão e data', ((o) => [o.appVersion, o.lastLogin])(G.acMesclarPerfil(antigo, { appVersion: '1.2.0', lastLogin: '2026-10-20T10:00:00Z', mustChangePwd: true })), ['1.2.0', '2026-10-20T10:00:00Z']);
+  eq('acesso mais recente (antigo) vence', ((o) => [o.appVersion, o.lastLogin])(G.acMesclarPerfil(antigo, { appVersion: '1.0.0', lastLogin: '2026-09-01T10:00:00Z', mustChangePwd: true })), ['1.1.0', '2026-10-01T10:00:00Z']);
+  eq('senha trocada no app NOVO (perfil=false) vale', G.acMesclarPerfil(antigo, { mustChangePwd: false }).mustChangePwd, false);
+  eq('senha trocada no app ANTIGO (antigo=false) vale', G.acMesclarPerfil({ ...antigo, mustChangePwd: false }, { mustChangePwd: true }).mustChangePwd, false);
+  eq('ninguém trocou: continua senha padrão', G.acMesclarPerfil(antigo, { mustChangePwd: true }).mustChangePwd, true);
+  eq('a mescla não inventa campo de senha', 'password' in G.acMesclarPerfil(antigo, { password: 'x', mustChangePwd: true }), false);
+
+  // ── conversas: união pelo id, sem perder mensagem de nenhum dos dois lados ──
+  const a = [{ id: 'm1', text: 'oi', sentAt: '2026-10-01', readByAdmin: false }, { id: 'm2', text: 'r', sentAt: '2026-10-02', fromAdmin: true }];
+  const b = [{ id: 'm1', text: 'oi', sentAt: '2026-10-01', readByAdmin: true }, { id: 'm3', text: 'nova', sentAt: '2026-10-03', readByAdmin: false }];
+  const u = G.acUniaoMensagens(a, b);
+  eq('união mantém as 3 mensagens, sem repetir', u.map((x) => x.id), ['m1', 'm2', 'm3']);
+  eq('lida pelo admin em qualquer lado = lida', u.find((x) => x.id === 'm1').readByAdmin, true);
+  eq('ordenada por data', u.map((x) => x.sentAt), ['2026-10-01', '2026-10-02', '2026-10-03']);
+  eq('lista nula não quebra', G.acUniaoMensagens(null, undefined), []);
+  eq('mensagem sem id é ignorada', G.acUniaoMensagens([{ text: 'x' }], []), []);
+
+  // ── mensagens de erro do login nunca revelam se o usuário existe ──
+  eq('senha errada e usuário inexistente dão a MESMA mensagem', G.acMsgErro({ code: 'auth/wrong-password' }), G.acMsgErro({ code: 'auth/user-not-found' }));
+  eq('credencial inválida', G.acMsgErro({ code: 'auth/invalid-credential' }), 'Usuário ou senha inválidos.');
+  eq('muitas tentativas', G.acMsgErro({ code: 'auth/too-many-requests' }).startsWith('Muitas tentativas'), true);
+  eq('sem internet', G.acMsgErro({ code: 'auth/network-request-failed' }).startsWith('Sem conexão'), true);
+  eq('erro desconhecido não vaza detalhe', G.acMsgErro({ code: 'xyz', message: 'segredo interno' }).includes('segredo'), false);
 
   console.log(falhas ? `\n${falhas} FALHA(S), ${ok} ok` : `Tudo confere. (${ok} conferências)`);
   process.exit(falhas ? 1 : 0);
