@@ -1,4 +1,4 @@
-const APP_VERSION = '1.2.0';  // Atualize aqui a cada nova versão
+const APP_VERSION = '1.3.0';  // Atualize aqui a cada nova versão
 const LOGO_DARK='https://res.cloudinary.com/dk10wezy9/image/upload/v1777137104/SN_Branco_m3jaiw.png';
 const LOGO_LIGHT='https://res.cloudinary.com/dk10wezy9/image/upload/v1777137105/SN_Solu%C3%A7%C3%B5es_Contabeis_wnt1wv.png';
 const getLogo=()=>document.body.classList.contains('light')?LOGO_LIGHT:LOGO_DARK;
@@ -1301,7 +1301,7 @@ function screenPainel(){
     </div>
     <div class="admin-content">
       ${renderPeriodSlicer(months)}
-      <div class="kpi-grid">${kpis}</div>
+      ${typeof snPainelHero==='function'?snPainelHero({rec,desp,outros,saldo,txs,periodo:slicerLabel}):`<div class="kpi-grid">${kpis}</div>`}
       <div class="charts-grid">
         <div class="chart-card"><div class="chart-title">Movimentações do Período</div><div class="chart-sub">Receitas vs Despesas por dia</div><canvas id="painel-chart-bar"></canvas></div>
         <div class="chart-card"><div class="chart-title">Por Tipo de Operação</div><div class="chart-sub">Distribuição do valor total</div><canvas id="painel-chart-pie"></canvas></div>
