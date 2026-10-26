@@ -48,6 +48,12 @@ const eq = (nome, got, want) => { const a = JSON.stringify(got), b = JSON.string
   // comparação usada na conferência
   eq('igual ignora undefined vs null', G.sgIgual(undefined, null), true);
   eq('diferente detecta', G.sgIgual({ a: 1 }, { a: 2 }), false);
+  eq('ordem dos campos NÃO importa (Firestore devolve em ordem alfabética)', G.sgIgual({ z: 1, a: { y: 2, b: 3 } }, { a: { b: 3, y: 2 }, z: 1 }), true);
+  eq('ordem dentro de arrays de objetos também', G.sgIgual([{ id: 'm1', text: 'x', at: 1 }], [{ at: 1, id: 'm1', text: 'x' }]), true);
+  eq('ordem dos itens do array IMPORTA', G.sgIgual([1, 2], [2, 1]), false);
+  eq('valor diferente num campo aninhado é detectado', G.sgIgual({ a: { b: 1 } }, { a: { b: 2 } }), false);
+  eq('campo a mais é detectado', G.sgIgual({ a: 1 }, { a: 1, b: 2 }), false);
+  eq('perfil do Firestore (ordem alfabética) igual ao do cadastro', G.sgIgual({ cnpj: '1', id: 'c1', razaoSocial: 'X', username: 'x' }, G.sgPerfil({ id: 'c1', razaoSocial: 'X', cnpj: '1', username: 'x', password: 's' })), true);
   eq('config cobre os 6 documentos compartilhados', G.SG_CONFIG_DOCS.length, 6);
 
   console.log(falhas ? `\n${falhas} FALHA(S), ${ok} ok` : `Tudo confere. (${ok} conferências)`);

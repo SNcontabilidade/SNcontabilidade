@@ -33,7 +33,14 @@ function sgDuplicados(clientes) {                                    // usuário
   (clientes || []).forEach((c) => { const k = sgNormUsuario(c && c.username); if (!k) return; (m.get(k) || m.set(k, []).get(k)).push(c.id); });
   return Array.from(m.values()).filter((ids) => ids.length > 1);
 }
-const sgIgual = (a, b) => JSON.stringify(a === undefined ? null : a) === JSON.stringify(b === undefined ? null : b);
+// comparação que IGNORA a ordem dos campos dos objetos (o Firestore devolve os campos em ordem alfabética; a ordem dos arrays vale)
+function sgCanon(v) {
+  if (v === undefined) return null;
+  if (Array.isArray(v)) return v.map(sgCanon);
+  if (v && typeof v === 'object') { const o = {}; Object.keys(v).sort().forEach((k) => { if (v[k] !== undefined) o[k] = sgCanon(v[k]); }); return o; }
+  return v;
+}
+const sgIgual = (a, b) => JSON.stringify(sgCanon(a)) === JSON.stringify(sgCanon(b));
 
 // ── estado e tela ────────────────────────────────────────────────────────────
 const sgState = { busy: false, log: [], estado: null };
