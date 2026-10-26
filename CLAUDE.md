@@ -70,6 +70,8 @@ index.html ainda registra o service worker (sw.js) e faz o recarregamento autom�
 | `testes/exemplo-depara.xlsx` | Planilha de exemplo **propositalmente bagunçada** (dados fictícios) para testar o DE-PARA |
 | `backup.js` | **Backup do banco (só admin)**: botão "💾 Backup do banco" na barra lateral que baixa um `.json` com todas as coleções (`BK_COLECOES`). Carregado só pelo `admin.html`; no `app.js` há **1 encaixe** (`bkBotaoHTML` no rodapé da barra). Prefixo `bk*` |
 | `testes/backup.test.cjs` | Testes do backup (`node testes/backup.test.cjs`) |
+| `seguranca.js` | **Segurança dos dados, Fase 1 (só admin):** tela "Segurança" com 3 botões — criar a conta de acesso de cada cliente no Firebase Authentication (mesma senha de hoje), copiar os dados para coleções por cliente e conferir de ponta a ponta. **Não altera** os dados que o app atual usa. Carregado só pelo `admin.html`; no `app.js` há **3 encaixes** (item de menu, título e roteamento). Prefixo `sg*` |
+| `testes/seguranca.test.cjs` | Testes da parte pura da Fase 1 (`node testes/seguranca.test.cjs`) |
 | `.gitignore` | Impede versionar `backup-sn_*.json`: o backup contém dados de clientes e **nunca** vai para o Git |
 | `app.js` | Toda a aplicação (constantes, estado, Firestore, login, admin, cliente, relatório, gráficos, init) |
 | `style.css` | Tema escuro/claro por variáveis CSS (`:root` e `body.light`), layout admin (sidebar) e cliente (topbar + bottom-nav) |
@@ -597,6 +599,26 @@ Confirmadas no código em 24/10/2026. Nenhuma foi alterada por não ter sido ped
 
 > Uma entrada por mudança, **a mais recente no topo**. Formato: data · versão — pedido, feito, decisões e porquês,
 > validação, pendências.
+
+### 2026-10-25 · v1.1.0 (versão **não** subida) — Segurança dos dados, Fase 1: contas de acesso e estrutura por cliente (preparação)
+
+**Pedido:** seguir o plano de proteção dos dados dos clientes sem plano pago do Firebase, sem trocar senhas e sem tirar o acesso
+de ninguém. **Feito (branch `seguranca/fase1-contas`):** `seguranca.js` + item "Segurança" no menu do admin com 3 ações:
+**(1)** criar uma conta no Firebase Authentication para cada cliente (login interno derivado do usuário; senha = a de hoje com um
+prefixo fixo, porque o Firebase exige 6+ caracteres), gravando `vinculos/{uid}` e `loginmeta/{hash}`; **(2)** copiar para
+coleções por cliente (`perfil` **sem senha**, `conversas`, `leitura`) e `config` (bancos, descrições, operações, ícones, comunicados);
+**(3)** conferir: cópias idênticas, nenhum perfil com senha, **cada cliente entra com a senha atual, lê o próprio perfil e é
+barrado ao ler o de outro**. Tudo é idempotente (pode rodar de novo; continua de onde parou) e **nunca altera nem apaga** `sn/*`
+e `sntx/*`. Usa uma 2ª instância do Firebase para não derrubar o login do admin.
+**Decisões:** o hash do usuário e o prefixo da senha **não podem mudar** depois que as contas existirem (teste com valor fixo
+protege isso); a conta tem uma "versão" `n` que sobe no reset de senha pelo admin (Fase 2). As regras novas das coleções ficam num
+arquivo **local, fora do Git**, e precisam ser publicadas no console antes de usar a tela. Usuário repetido (mesmo login) é recusado.
+**Validação:** `node testes/seguranca.test.cjs` (27), `backup.test.cjs` (14), `depara-core.test.cjs` (109); `node --check` limpo; a tela
+abre no navegador com banco simulado. **Não validado:** criação de contas e conferência com o Firebase real (rodar no Live Server
+com o login do admin, depois de publicar as regras). **Pendências:** Fase 2 (app do cliente passa a usar essas contas), Fase 3
+(janela de convivência) e Fase 4 (fechar o banco antigo).
+
+---
 
 ### 2026-10-25 · v1.1.0 (versão **não** subida) — Botão de backup do banco no admin (1º passo da revisão de segurança)
 
