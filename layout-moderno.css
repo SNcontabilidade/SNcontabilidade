@@ -129,6 +129,13 @@ body.light .cl-avatar{background:var(--grad);border:none}
 .cl-stat{border-radius:var(--r-md);padding:10px 12px;border:1px solid var(--border)}
 .cl-stat-lbl{font-weight:600;letter-spacing:.06em}
 .cl-badge{padding:3px 10px;font-weight:600}
+/* Rodapé do card: o selo + 3 botões não cabem lado a lado na largura mínima do card (280px) e os botões vazavam pela borda.
+   Agora a linha quebra: o selo fica de um lado e os botões descem para a linha de baixo, sempre dentro do card. */
+.cl-card{min-width:0}
+.cl-card-footer{flex-wrap:wrap;gap:10px}
+.cl-card-footer .row{flex:1 1 100%;flex-wrap:wrap;gap:6px;min-width:0}
+.cl-card-footer .row .btn{flex:1 1 auto;justify-content:center;text-align:center}
+.cl-card .btn-sm{padding:6px 10px;font-size:12px;white-space:nowrap}
 .detail-hero{padding:24px}
 .detail-hero-name{letter-spacing:-.02em}
 .back-btn{border-radius:12px;background:var(--card);box-shadow:var(--shadow);margin-bottom:22px}

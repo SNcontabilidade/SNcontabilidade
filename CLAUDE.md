@@ -610,7 +610,20 @@ Confirmadas no código em 24/10/2026. Nenhuma foi alterada por não ter sido ped
 > Uma entrada por mudança, **a mais recente no topo**. Formato: data · versão — pedido, feito, decisões e porquês,
 > validação, pendências.
 
-### 2026-10-25 · v1.3.0 (branch `layout/moderno-v2`, **ainda não publicada**) — Layout moderno nos dois ambientes (cliente e admin)
+### 2026-10-26 · v1.3.0 (correção, branch `fix/botoes-card-cliente`) — Botões do card de cliente vazavam pela borda (admin)
+
+**Bug (achado pelo dono):** em **Clientes**, no admin, os botões Editar / Reset senha / **Remover** passavam da borda direita de cada card.
+**Causa:** o rodapé do card (`.cl-card-footer`) tem o selo ("Senha padrão"/"Ativo") **e** três botões na mesma linha; o tema novo aumentou o
+espaço interno dos botões e a linha deixou de caber na largura mínima do card (280px, `minmax(280px,1fr)` do `.cl-grid`).
+**Feito (só CSS, em `layout-moderno.css`):** o rodapé quebra em duas linhas — o selo em cima e os **3 botões lado a lado, de larguras iguais**,
+embaixo; `.cl-card{min-width:0}`, botões `btn-sm` um pouco mais compactos. Sem mudança de HTML, de regra ou de versão.
+**Validação:** reproduzido no navegador de teste forçando o card em 280px com o CSS antigo (**4 botões fora do card**, um por card) e com
+a correção (**0**); conferido também na largura normal (346px), no tema claro e no celular (375px, sem rolagem lateral).
+**Aprendizado:** ao mexer em padding/tamanho de botão do tema, conferir os rodapés de card na **largura mínima** (280px), não só na média.
+
+---
+
+### 2026-10-25 · v1.3.0 (publicada na `main`) — Layout moderno nos dois ambientes (cliente e admin)
 
 **Pedido:** aplicar de verdade a prévia do layout moderno ("versão 2": cartão de Saldo e gráficos refeitos) **no app do cliente e no
 admin**, com os ícones melhorados. Era só prévia no ambiente de teste (ligada por `?v2=1`/`?ui=novo`); nunca tinha entrado no projeto.
