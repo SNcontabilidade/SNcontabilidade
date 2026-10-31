@@ -274,9 +274,9 @@ Operações padrão (`OPS`): **Receita, Retirada, Bens, Estoque, Despesa, Aporte
 
 - `valor` é sempre guardado positivo; o sinal é aplicado só na exibição e nas somas.
 - **Sinal de cada operação (desde a v1.4.0), fonte única em `fluxoSinal(op)`:**
-  - **Entra (+):** `receita` e **`aporte`** (`isEntrada`). O aporte **soma no card Outros** (não no card Receitas) **e reflete no saldo**.
+  - **Entra (+):** `receita`, **`aporte`** e **`emprestimo`** (`isEntrada`). Aporte e empréstimo **somam no card Outros** (não no card Receitas) **e refletem no saldo**.
   - **Sai (−):** `despesa`, `retirada` (`isNeg`), **compras** `estoque` e `bens` (`OPS_COMPRA`) e `investimento` (**aplicação**, `OP_APLICACAO`).
-  - **Neutras (0):** `emprestimo`, `entre_bancos` e as personalizadas — não mexem no saldo (empréstimo ficou de fora por não ter sido pedido).
+  - **Neutras (0):** `entre_bancos` e as personalizadas — não mexem no saldo.
   - `isNeg` continua significando só despesa/retirada (é o que define o card **Despesas**). `isSaida(op)` = `isNeg`, compra ou
     investimento (usada para sinal e cor na exibição).
   - **Pendente (a pagar) só entra no saldo depois de baixado.** O saldo é calculado só sobre lançamentos **sem** `status:'pendente'`
@@ -293,8 +293,8 @@ Excel, dashboard, ranking, cartão e detalhe do cliente no admin, cartão de Sal
 | **Receitas** | soma de `operation==='receita'` (o aporte **não** entra aqui); `calcResumo` devolve `aporte` à parte, que o cartão de Saldo cita ("+ R$ X de aportes") |
 | **Despesas** | soma das `isNeg` (**despesa + retirada**) |
 | **Aplicações** (card próprio, `#14b8a6`) | soma de `investimento` |
-| **Outros** | soma de tudo que não é `receita`, despesa/retirada **nem investimento** (estoque, bens, **aporte**, empréstimo, entre bancos, personalizadas). Só estoque/bens/aporte mexem no saldo; o resto de "Outros" não |
-| **Saldo** | `Receitas + Aportes − Despesas − Compras (estoque e bens) − Aplicações`, **só dos lançamentos já pagos** (pendentes ficam de fora até a baixa). `calcResumo` devolve também `liq` = os componentes pagos, que o cartão de Saldo lista |
+| **Outros** | soma de tudo que não é `receita`, despesa/retirada **nem investimento** (estoque, bens, **aporte**, **empréstimo**, entre bancos, personalizadas). Estoque/bens (−), aporte e empréstimo (+) mexem no saldo; entre bancos e personalizadas não |
+| **Saldo** | `Receitas + Aportes + Empréstimos − Despesas − Compras (estoque e bens) − Aplicações`, **só dos lançamentos já pagos** (pendentes ficam de fora até a baixa). `calcResumo` devolve também `liq` = os componentes pagos, que o cartão de Saldo lista |
 | **Total Lançamentos** | quantidade de registros — **cada parcela / cada mês contínuo conta como um** |
 
 Os cards Receitas/Despesas/Outros/Aplicações mostram o **total do período, com pendentes**; só o **Saldo** (e a composição no cartão) usa
@@ -584,7 +584,7 @@ Confirmadas no código em 24/10/2026. Nenhuma foi alterada por não ter sido ped
 
 1. ~~Duas fórmulas de Saldo~~ — **resolvida na v1.4.0**: fórmula única em `calcResumo` (regra 8.2). **Atenção:** a regra do
    saldo mudou duas vezes no mesmo dia por pedido do dono (ver o histórico de 30/10) e hoje é: pago sai das receitas
-   (despesa, retirada, compras, aplicação); **pendente só desconta depois da baixa**. O aporte soma com a receita; o empréstimo não mexe no saldo.
+   (despesa, retirada, compras, aplicação); **pendente só desconta depois da baixa**. Aporte e empréstimo somam no saldo (aparecem em Outros).
    Não há linha "disponível × investido" separada.
 2. **Gráficos e relatório do Painel ignoram o filtro de meses** (usam `clientPeriod`, sempre vazio) — mostram tudo,
    enquanto os cards respeitam a seleção.
@@ -651,11 +651,12 @@ Regra final: `Receitas − Despesas − Compras (estoque e bens) − Aplicaçõe
   começa no dia anterior com saldo 0.
 - **Aporte** (pedido do dono, depois dos testes): entra no **saldo** como entrada e fica somado no card **Outros** — **não** no card Receitas
   (1ª tentativa o somou à receita; o dono corrigiu). O cartão de Saldo mostra "X de receitas + Y de aportes". Os gráficos de barras
-  receita × despesa continuam só com receita. Empréstimo continua neutro — **a confirmar** se deve somar também.
+  receita × despesa continuam só com receita. 
+- **Empréstimo** (pedido seguinte do dono): passa a somar no saldo e em Outros, igual ao aporte; o cartão cita "+ R$ X de empréstimos".
 - `sw.js`: `CACHE_NAME` `sn-v7`. `APP_VERSION` `1.4.0`.
 **Decisões e porquês:** o saldo é **regime de caixa** — só conta o que já foi pago/recebido, pela marca `status` (pendente × pago), sem
 olhar a data de vencimento: o dono é quem dá a baixa. Vale para **qualquer** operação pendente (inclusive receita a receber);
-aporte/empréstimo/entre bancos/personalizadas ficam neutros (não pedidos); os cards (Receitas, Despesas, Outros, Aplicações)
+entre bancos/personalizadas ficam neutros (não pedidos); os cards (Receitas, Despesas, Outros, Aplicações)
 continuam com o total do período, pendentes incluídos, e o card Pendente diz quanto falta pagar; `isNeg` não mudou de significado
 (card Despesas); o dado salvo não muda. **Efeito esperado:** saldo de quem tem compra/investimento **paga** cai; o que está a pagar
 só pesa depois da baixa. Quem mexe em pendente já existente vê o saldo mudar na hora da baixa.

@@ -227,25 +227,26 @@ const uid=()=>Math.random().toString(36).slice(2,10)+Date.now().toString(36);
 const todayStr=()=>new Date().toISOString().slice(0,10);
 const isNeg=op=>['despesa','retirada'].includes(op);
 // ─── FLUXO FINANCEIRO · fonte ÚNICA do saldo (painel, histórico, lista, relatório e admin usam esta) ───
-// Saldo = o que JÁ foi pago/recebido: Receitas + Aportes − Despesas − Compras (estoque e bens) − Aplicações (investimento).
-// Lançamento PENDENTE (a pagar) fica fora do saldo até ser baixado (status pago). Aporte, empréstimo, entre bancos e
-// operações personalizadas não mexem no saldo. Os cards Receitas/Despesas/Outros/Aplicações mostram o total do período (com pendentes).
+// Saldo = o que JÁ foi pago/recebido: Receitas + Aportes + Empréstimos − Despesas − Compras (estoque e bens) − Aplicações (investimento).
+// Lançamento PENDENTE (a pagar) fica fora do saldo até ser baixado (status pago). Entre bancos e operações personalizadas
+// não mexem no saldo. Os cards Receitas/Despesas/Outros/Aplicações mostram o total do período (com pendentes).
 const OPS_COMPRA=['estoque','bens'];
 const OP_APLICACAO='investimento';
 const isSaida=op=>isNeg(op)||OPS_COMPRA.includes(op)||op===OP_APLICACAO;
-const isEntrada=op=>op==='receita'||op==='aporte';   // entram no saldo; o aporte fica no card Outros, a receita no card Receitas
+const isEntrada=op=>op==='receita'||op==='aporte'||op==='emprestimo';   // entram no saldo; aporte e empréstimo ficam no card Outros, a receita no card Receitas
 const fluxoSinal=op=>isSaida(op)?-1:(isEntrada(op)?1:0);
 const calcResumo=list=>{
   const soma=(fn,l)=>(l||list).filter(fn).reduce((a,t)=>a+t.valor,0);
   const rec=soma(t=>t.operation==='receita');
   const aporte=soma(t=>t.operation==='aporte');
+  const emprestimo=soma(t=>t.operation==='emprestimo');
   const desp=soma(t=>isNeg(t.operation));
   const aplic=soma(t=>t.operation===OP_APLICACAO);
   const compras=soma(t=>OPS_COMPRA.includes(t.operation));
-  const outros=soma(t=>t.operation!=='receita'&&!isNeg(t.operation)&&t.operation!==OP_APLICACAO);   // inclui o aporte (que também entra no saldo)   // aplicação tem card próprio
+  const outros=soma(t=>t.operation!=='receita'&&!isNeg(t.operation)&&t.operation!==OP_APLICACAO);   // inclui aporte e empréstimo (que também entram no saldo); aplicação tem card próprio
   const pagos=list.filter(t=>t.status!=='pendente');   // só o que já saiu/entrou de fato
-  const liq={rec:soma(t=>t.operation==='receita',pagos),aporte:soma(t=>t.operation==='aporte',pagos),desp:soma(t=>isNeg(t.operation),pagos),compras:soma(t=>OPS_COMPRA.includes(t.operation),pagos),aplic:soma(t=>t.operation===OP_APLICACAO,pagos)};
-  return{rec,aporte,desp,aplic,compras,outros,liq,saldo:liq.rec+liq.aporte-liq.desp-liq.compras-liq.aplic};
+  const liq={rec:soma(t=>t.operation==='receita',pagos),aporte:soma(t=>t.operation==='aporte',pagos),emprestimo:soma(t=>t.operation==='emprestimo',pagos),desp:soma(t=>isNeg(t.operation),pagos),compras:soma(t=>OPS_COMPRA.includes(t.operation),pagos),aplic:soma(t=>t.operation===OP_APLICACAO,pagos)};
+  return{rec,aporte,emprestimo,desp,aplic,compras,outros,liq,saldo:liq.rec+liq.aporte+liq.emprestimo-liq.desp-liq.compras-liq.aplic};
 };
 const fmtCur=v=>'R$ '+Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
 const fmtDate=v=>v?new Date(v+'T12:00:00').toLocaleDateString('pt-BR'):'';
