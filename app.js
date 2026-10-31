@@ -227,18 +227,23 @@ const uid=()=>Math.random().toString(36).slice(2,10)+Date.now().toString(36);
 const todayStr=()=>new Date().toISOString().slice(0,10);
 const isNeg=op=>['despesa','retirada'].includes(op);
 // ─── FLUXO FINANCEIRO · fonte ÚNICA do saldo (painel, histórico, lista, relatório e admin usam esta) ───
-// Saldo = Receitas − Despesas (despesa + retirada) − Aplicações (investimento). Tudo o mais ("Outros": estoque, bens,
-// aporte, empréstimo, entre bancos, personalizadas) NÃO mexe no saldo e só aparece no card Outros.
+// Saldo = o que JÁ foi pago/recebido: Receitas − Despesas − Compras (estoque e bens) − Aplicações (investimento).
+// Lançamento PENDENTE (a pagar) fica fora do saldo até ser baixado (status pago). Aporte, empréstimo, entre bancos e
+// operações personalizadas não mexem no saldo. Os cards Receitas/Despesas/Outros/Aplicações mostram o total do período (com pendentes).
+const OPS_COMPRA=['estoque','bens'];
 const OP_APLICACAO='investimento';
-const isSaida=op=>isNeg(op)||op===OP_APLICACAO;
+const isSaida=op=>isNeg(op)||OPS_COMPRA.includes(op)||op===OP_APLICACAO;
 const fluxoSinal=op=>isSaida(op)?-1:(op==='receita'?1:0);
 const calcResumo=list=>{
-  const soma=fn=>list.filter(fn).reduce((a,t)=>a+t.valor,0);
+  const soma=(fn,l)=>(l||list).filter(fn).reduce((a,t)=>a+t.valor,0);
   const rec=soma(t=>t.operation==='receita');
   const desp=soma(t=>isNeg(t.operation));
   const aplic=soma(t=>t.operation===OP_APLICACAO);
+  const compras=soma(t=>OPS_COMPRA.includes(t.operation));
   const outros=soma(t=>t.operation!=='receita'&&!isNeg(t.operation)&&t.operation!==OP_APLICACAO);   // aplicação tem card próprio
-  return{rec,desp,aplic,outros,saldo:rec-desp-aplic};
+  const pagos=list.filter(t=>t.status!=='pendente');   // só o que já saiu/entrou de fato
+  const liq={rec:soma(t=>t.operation==='receita',pagos),desp:soma(t=>isNeg(t.operation),pagos),compras:soma(t=>OPS_COMPRA.includes(t.operation),pagos),aplic:soma(t=>t.operation===OP_APLICACAO,pagos)};
+  return{rec,desp,aplic,compras,outros,liq,saldo:liq.rec-liq.desp-liq.compras-liq.aplic};
 };
 const fmtCur=v=>'R$ '+Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
 const fmtDate=v=>v?new Date(v+'T12:00:00').toLocaleDateString('pt-BR'):'';
@@ -1115,7 +1120,7 @@ async function exportExcel(){
   const head=['Data','Operação','Descrição','Banco','Complemento','Responsável','Valor (R$)','Situação','Vencimento'];
   const linhas=list.map(t=>[fmtDate(t.date),getOp(t.operation)?.label||t.operation,(t.descricao||'')+parcTag(t),t.banco||'',t.complemento||'',t.responsavel||'',sinal(t)*t.valor,isPend(t)?'Pendente':'Pago',t.vencimento?fmtDate(t.vencimento):'']);
   const topo=[[client.razaoSocial],['CNPJ: '+(client.cnpj||'')],['Gerado em '+new Date().toLocaleString('pt-BR')],[]];
-  const fim=[[],['','','','','','Receitas',RR.rec],['','','','','','Despesas',-RR.desp],...(RR.aplic?[['','','','','','Aplicações',-RR.aplic]]:[]),['','','','','','Saldo',RR.saldo],['','','','','','Pendente (a prazo)',pend]];
+  const fim=[[],['','','','','','Receitas',RR.rec],['','','','','','Despesas',-RR.desp],...(RR.compras?[['','','','','','Compras (estoque e bens)',-RR.compras]]:[]),...(RR.aplic?[['','','','','','Aplicações',-RR.aplic]]:[]),['','','','','','Saldo (sem os pendentes)',RR.saldo],['','','','','','Pendente (a prazo)',pend]];
   const nome='Relatorio_'+(client.razaoSocial||'cliente').normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^A-Za-z0-9]+/g,'_').replace(/^_|_$/g,'')+'_'+localToday()+'.xlsx';
   try{
     const X=await loadSheetJS();
@@ -1185,8 +1190,9 @@ function printRelatorio(){
   <div class="totais">
     <span>Receitas: <strong style="color:#10b981">${fmtCur(rec)}</strong></span>
     <span>Despesas: <strong style="color:#ef4444">${fmtCur(desp)}</strong></span>
+    ${RP.compras?`<span>Compras: <strong style="color:#ef4444">${fmtCur(RP.compras)}</strong></span>`:''}
     ${RP.aplic?`<span>Aplicações: <strong style="color:#ef4444">${fmtCur(RP.aplic)}</strong></span>`:''}
-    <span>Saldo: <strong style="color:${saldo>=0?'#10b981':'#ef4444'}">${fmtCur(saldo)}</strong></span>
+    <span>Saldo (sem os pendentes): <strong style="color:${saldo>=0?'#10b981':'#ef4444'}">${fmtCur(saldo)}</strong></span>
   </div>
   <div class="footer">SN Soluções Contábeis · Sistema de Gestão Financeira</div>
   <br/><button class="btn-print" onclick="window.print()">🖨️ Imprimir</button>
@@ -1281,7 +1287,7 @@ function screenPainel(){
   S.selectedMonths=S.selectedMonths.filter(m=>monthSet.has(m));
   const allSelected=S.selectedMonths.length===0;
   const txs=allSelected?allTxs:allTxs.filter(t=>{const d=new Date((t.date||todayStr())+'T12:00:00');const mk=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;return S.selectedMonths.includes(mk);});
-  const {rec,desp,aplic,compras,entradas,outros,saldo}=calcResumo(txs);
+  const {rec,desp,aplic,compras,liq,outros,saldo}=calcResumo(txs);
   const MN=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
   const monthLabel=m=>{if(!m)return'';const[y,mo]=m.split('-');return`${MN[parseInt(mo)-1]} ${y}`;};
   // Slicer chips
@@ -1305,7 +1311,7 @@ function screenPainel(){
     </div>
     <div class="admin-content">
       ${renderPeriodSlicer(months)}
-      ${typeof snPainelHero==='function'?snPainelHero({rec,desp,aplic,compras,entradas,outros,saldo,txs,periodo:slicerLabel}):`<div class="kpi-grid">${kpis}</div>`}
+      ${typeof snPainelHero==='function'?snPainelHero({rec,desp,aplic,compras,liq,outros,saldo,txs,periodo:slicerLabel}):`<div class="kpi-grid">${kpis}</div>`}
       <div class="charts-grid">
         <div class="chart-card"><div class="chart-title">Movimentações do Período</div><div class="chart-sub">Receitas vs Despesas por dia</div><canvas id="painel-chart-bar"></canvas></div>
         <div class="chart-card"><div class="chart-title">Por Tipo de Operação</div><div class="chart-sub">Distribuição do valor total</div><canvas id="painel-chart-pie"></canvas></div>
@@ -1568,6 +1574,7 @@ function screenLista(){
   const txs=getClientTx();const f=S.filters;
   const filtered=txs.filter(t=>{if(f.startDate&&t.date<f.startDate)return false;if(f.endDate&&t.date>f.endDate)return false;if(f.operation&&t.operation!==f.operation)return false;if(f.banco&&t.banco!==f.banco)return false;if(f.status==='pendente'&&!isPend(t))return false;if(f.minVal&&t.valor<parseFloat(f.minVal))return false;if(f.maxVal&&t.valor>parseFloat(f.maxVal))return false;if(f.busca){const q2=f.busca.toLowerCase();if(![t.descricao,t.responsavel,t.complemento,t.banco].some(x=>x?.toLowerCase().includes(q2)))return false;}return true;});
   const saldo=calcResumo(filtered).saldo;
+  const soPend=f.status==='pendente';const totPend=filtered.filter(isPend).reduce((x,t)=>x+t.valor,0);   // no filtro Pendente o resumo é o total a pagar (pendente não entra no saldo)
   // só no filtro "Pendente": o que vence primeiro fica no topo (sem vencimento vai para o fim)
   if(f.status==='pendente')filtered.sort((a,b)=>(a.vencimento||'9999-12-31').localeCompare(b.vencimento||'9999-12-31')||(a.date||'').localeCompare(b.date||''));
   const hasFilter=Object.values(f).some(Boolean);
@@ -1576,7 +1583,7 @@ function screenLista(){
   const allOpsFilter=[...OPS,...S.customOps];
   const filterPanel=S.filterOpen?`<div class="card" style="margin-bottom:16px"><div style="color:var(--accent);font-weight:700;margin-bottom:12px">← Filtro</div><div class="filter-grid"><div><label class="label">Data Inicial</label><input type="date" style="${is}" value="${f.startDate}" onchange="setFilter('startDate',this.value)"/></div><div><label class="label">Data Final</label><input type="date" style="${is}" value="${f.endDate}" onchange="setFilter('endDate',this.value)"/></div></div><div class="field"><label class="label">Operação</label><select style="${is};appearance:none" onchange="setFilter('operation',this.value)"><option value="">Todas</option>${allOpsFilter.map(o=>`<option value="${o.id}" ${f.operation===o.id?'selected':''}>${o.label}</option>`).join('')}</select></div><div class="field"><label class="label">Situação</label><select style="${is};appearance:none" onchange="setFilter('status',this.value)"><option value="">Todas</option><option value="pendente" ${f.status==='pendente'?'selected':''}>Pendente de baixa</option></select></div><div class="field"><label class="label">Banco</label><select style="${is};appearance:none" onchange="setFilter('banco',this.value)"><option value="">Todos</option>${allBancos.map(b=>`<option value="${esc(b)}" ${f.banco===b?'selected':''}>${esc(b)}</option>`).join('')}</select></div><div class="filter-grid"><div><label class="label">Valor Mín.</label><input type="number" style="${is}" value="${f.minVal}" placeholder="0" onchange="setFilter('minVal',this.value)"/></div><div><label class="label">Valor Máx.</label><input type="number" style="${is}" value="${f.maxVal}" placeholder="∞" onchange="setFilter('maxVal',this.value)"/></div></div><div class="field"><label class="label">Busca</label><input style="${is}" value="${esc(f.busca)}" placeholder="Descrição, responsável..." onchange="setFilter('busca',this.value)"/></div><button class="btn btn-ghost btn-full" style="margin-top:4px;font-size:13px" onclick="clearFilters()">Limpar Filtros</button></div>`:'';
   const txCards=filtered.map(t=>{const op=getOp(t.operation);return`<div class="tx-card" style="border-left-color:${op?.color||'var(--accent)'}"><div class="tx-row"><div class="tx-left"><div class="tx-header">${opImg(t.operation,'20px')}<span class="tx-label">${op?.label||t.operation}</span><span class="tx-date">· ${fmtDate(t.date)}</span></div>${t.descricao?`<div class="tx-desc">${esc(t.descricao)}${parcTag(t)}</div>`:''}${t.complemento?`<div class="tx-compl" style="font-size:12.5px;font-weight:600;color:var(--text);margin-top:2px">${esc(t.complemento)}</div>`:''}${t.status==='pendente'?`<div style="font-size:12px;color:#a855f7;font-weight:600;margin-top:2px">⏳ Pagamento pendente · vence ${fmtDate(t.vencimento)}</div>`:''}<div class="tx-meta" style="display:flex;align-items:center;gap:4px">${bankLogo(t.banco,'18px')}${bankLogo(t.banco,'18px').startsWith('<img')?' '+esc(t.banco):''}${t.responsavel?' · '+esc(t.responsavel):''}</div>${t.comprovante?`<div class="tx-comp"><a href="${t.comprovante}" target="_blank" style="color:var(--blue);text-decoration:none;font-size:12px">📎 Ver comprovante</a></div>`:''}</div><div class="tx-right"><span class="tx-val" style="color:${isSaida(t.operation)?'var(--danger)':'var(--success)'}">${isSaida(t.operation)?'−':'+'}${fmtCur(t.valor)}</span><div class="tx-actions">${isPend(t)?`<button class="tx-edit-btn" style="color:#a855f7" onclick="baixaTx('${t.id}')">✅ dar baixa</button>`:''}<button class="tx-edit-btn" onclick="editTx('${t.id}')">✏️ editar</button><button class="tx-del-btn" onclick="deleteTx('${t.id}')">🗑 excluir</button></div></div></div></div>`;}).join('');
-  return`<div class="screen"><div class="row-spread" style="margin-bottom:12px"><h3 style="color:var(--text)">Lançamentos (${filtered.length})</h3><div style="display:flex;gap:6px"><button class="btn btn-ghost btn-sm" onclick="openExport()">🖨️ Imprimir / Exportar</button><button class="btn ${hasFilter?'btn-acc':'btn-ghost'} btn-sm" onclick="toggleFilter()">🔍 ${hasFilter?'Filtro ativo':'Filtro'}</button></div></div>${filterPanel}<div class="card summary" style="margin-bottom:12px"><span class="summary-lbl">Saldo do período</span><span class="summary-val" style="color:${saldo>=0?'var(--success)':'var(--danger)'}">${saldo<0?'−':''}${fmtCur(Math.abs(saldo))}</span></div>${filtered.length===0?'<div class="empty" style="padding-top:40px">Nenhum lançamento encontrado.</div>':txCards}</div>`;
+  return`<div class="screen"><div class="row-spread" style="margin-bottom:12px"><h3 style="color:var(--text)">Lançamentos (${filtered.length})</h3><div style="display:flex;gap:6px"><button class="btn btn-ghost btn-sm" onclick="openExport()">🖨️ Imprimir / Exportar</button><button class="btn ${hasFilter?'btn-acc':'btn-ghost'} btn-sm" onclick="toggleFilter()">🔍 ${hasFilter?'Filtro ativo':'Filtro'}</button></div></div>${filterPanel}<div class="card summary" style="margin-bottom:12px">${soPend?`<span class="summary-lbl">Total a pagar (pendentes)</span><span class="summary-val" style="color:#a855f7">${fmtCur(totPend)}</span>`:`<span class="summary-lbl">Saldo do período</span><span class="summary-val" style="color:${saldo>=0?'var(--success)':'var(--danger)'}">${saldo<0?'−':''}${fmtCur(Math.abs(saldo))}</span>`}</div>${filtered.length===0?'<div class="empty" style="padding-top:40px">Nenhum lançamento encontrado.</div>':txCards}</div>`;
 }
 function setFilter(k,v){S.filters[k]=v;render();}
 function clearFilters(){S.filters={startDate:'',endDate:'',operation:'',banco:'',minVal:'',maxVal:'',busca:'',status:''};render();}
@@ -1592,7 +1599,7 @@ function screenHistorico(){
   const txs=S.histPeriod?allTxs.filter(t=>{const d=new Date((t.date||todayStr())+'T12:00:00');return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`===S.histPeriod;}):allTxs;
   const monthLabel=m=>{if(!m)return'';const[y,mo]=m.split('-');const names=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];return`${names[parseInt(mo)-1]} / ${y}`;};
   const monthOpts=months.length?months.map(m=>`<option value="${m}" ${m===S.histPeriod?'selected':''}>${monthLabel(m)}</option>`).join(''):'<option value="">Sem lançamentos</option>';
-  const {rec,desp,aplic,compras,entradas,outros,saldo}=calcResumo(txs);
+  const {rec,desp,aplic,compras,liq,outros,saldo}=calcResumo(txs);
   const opG={};txs.forEach(t=>{if(!opG[t.operation])opG[t.operation]={count:0,total:0};opG[t.operation].count++;opG[t.operation].total+=t.valor;});
   const opCards=Object.entries(opG).sort((a,b)=>b[1].total-a[1].total).map(([id,d])=>{
     const op=getOp(id);const neg=isSaida(id);

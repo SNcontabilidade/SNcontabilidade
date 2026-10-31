@@ -55,9 +55,9 @@
   // Cartão de Saldo + cards menores (o app.js chama isto no lugar da grade de 6 cards)
   window.snPainelHero = function (d) {
     const nPend = d.txs.filter(isPend).length, somaPend = d.txs.filter(isPend).reduce((a, t) => a + t.valor, 0);
-    // saldo acumulado dia a dia (mesma fórmula do card: fluxoSinal do app.js — receitas somam; despesas e aplicações subtraem)
+    // saldo acumulado dia a dia (mesma fórmula do card: só lançamentos pagos; fluxoSinal do app.js — receitas somam; despesas, compras e aplicações subtraem)
     const porDia = {};
-    d.txs.forEach((t) => { const s = fluxoSinal(t.operation) * t.valor; porDia[t.date] = (porDia[t.date] || 0) + s; });
+    d.txs.filter((t) => !isPend(t)).forEach((t) => { const s = fluxoSinal(t.operation) * t.valor; porDia[t.date] = (porDia[t.date] || 0) + s; });
     let acc = 0; const labels = [], data = [];
     Object.keys(porDia).sort().forEach((k) => { acc += porDia[k]; labels.push(k.slice(8) + '/' + k.slice(5, 7)); data.push(+acc.toFixed(2)); });
     window.__snSpark = { labels, data, positivo: d.saldo >= 0 };
@@ -71,9 +71,11 @@
           <div class="sn-hero__label">Saldo do período <span class="sn-hero__per">${d.periodo}</span></div>
           <div class="sn-hero__val">${fmt(d.saldo)}</div>
           <div class="sn-hero__sub">${[
-            fmt(d.rec) + ' de receitas',
-            '− ' + fmt(d.desp) + ' de despesas',
-            d.aplic ? '− ' + fmt(d.aplic) + ' de aplicações' : '',
+            fmt(d.liq.rec) + ' de receitas',
+            d.liq.desp ? '− ' + fmt(d.liq.desp) + ' de despesas' : '',
+            d.liq.compras ? '− ' + fmt(d.liq.compras) + ' de compras (estoque e bens)' : '',
+            d.liq.aplic ? '− ' + fmt(d.liq.aplic) + ' de aplicações' : '',
+            nPend ? '· pendentes só descontam depois de pagos' : '',
           ].filter(Boolean).join(' ')}</div>
           ${nPend ? `<button class="sn-hero__pend" onclick="showPendentes()">⏳ ${fmt(somaPend)} a pagar · ${nPend} lançamento${nPend > 1 ? 's' : ''} pendente${nPend > 1 ? 's' : ''} <span>→</span></button>` : ''}
         </div>
