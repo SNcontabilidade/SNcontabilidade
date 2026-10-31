@@ -68,8 +68,8 @@ index.html ainda registra o service worker (sw.js) e faz o recarregamento autom�
 | `depara.css` | Estilo do DE-PARA, tudo prefixado `.dp-` e só com variáveis de tema do app |
 | `testes/depara-core.test.cjs` | Única bateria automatizada do projeto: `node testes/depara-core.test.cjs` (109 conferências do núcleo) |
 | `testes/exemplo-depara.xlsx` | Planilha de exemplo **propositalmente bagunçada** (dados fictícios) para testar o DE-PARA |
-| `backup.js` | **Backup do banco (só admin)**: botão "💾 Backup do banco" na barra lateral que baixa um `.json` com todas as coleções (`BK_COLECOES`). Carregado só pelo `admin.html`; no `app.js` há **1 encaixe** (`bkBotaoHTML` no rodapé da barra). Prefixo `bk*` |
-| `testes/backup.test.cjs` | Testes do backup (`node testes/backup.test.cjs`) |
+| `backup.js` | **Backup do banco (só admin)**: botão "💾 Backup do banco" na barra lateral que baixa um `.json` com todas as coleções (`BK_COLECOES`). Carregado só pelo `admin.html`; no `app.js` há **1 encaixe** (`bkBotaoHTML` no rodapé da barra, que agora traz **dois** botões: Backup e **Restaurar do backup**). Prefixo `bk*` |
+| `testes/backup.test.cjs` | Testes do backup e do plano de restauração (`node testes/backup.test.cjs`) |
 | `acesso.js` | **Acesso do cliente (v1.2.0)** — carregado por `index.html` **e** `admin.html`, antes do `app.js`: regras de usuário→conta (`sg*`: hash, e-mail interno, senha do Authentication, `sgPerfil`), login e carga **só dos dados do próprio cliente** (`ac*`: `acEntrar`, `acCarregarCliente`, `acIniciarCliente`), junção do modelo antigo com o novo para o admin (`acMesclarPerfil`, `acUniaoMensagens`, `acMesclarNovoAdmin`) e espelho das configurações (`acEspelharConfig`) |
 | `layout-moderno.css` | **Tema moderno (v1.3.0)**, carregado por `index.html` e `admin.html` **depois** do `style.css` e sobrescrevendo por cima: variáveis de cor/raio/sombra, tipografia Inter, cartões, sidebar, cabeçalho, botões, formulários, login e o **cartão de Saldo** do painel (`.sn-hero`, `.sn-minis`). Só aparência: nenhuma regra de negócio. Tema claro em `body.light` |
 | `layout-moderno.js` | Carregado **depois** do `app.js`: (1) troca só a URL de **entrega** dos ícones do Cloudinary (tamanho, formato, cantos) — nenhum arquivo original muda; (2) `snPainelHero`, o cartão de Saldo que o `screenPainel` chama; (3) envolve `buildClientCharts`/`buildAdminCharts` e restiliza os gráficos (barras com gradiente, rosca com total no centro). Cada bloco é protegido: se falhar, o app segue com o visual simples |
@@ -609,6 +609,22 @@ Confirmadas no código em 24/10/2026. Nenhuma foi alterada por não ter sido ped
 
 > Uma entrada por mudança, **a mais recente no topo**. Formato: data · versão — pedido, feito, decisões e porquês,
 > validação, pendências.
+
+### 2026-10-30 · v1.3.0 (branch `feature/restaurar-backup`, **não** publicada) — Botão "Restaurar do backup" (admin)
+
+**Motivo:** o dono apagou por engano, direto no console do Firebase, o documento de lançamentos de um cliente (coleção `sntx`). O plano
+gratuito não tem lixeira nem recuperação por ponto no tempo, então a única fonte era o arquivo de backup baixado antes (25/10).
+**Feito:** botão **♻️ Restaurar do backup** abaixo do botão de backup (`backup.js`: `admRestaurar`, `bkConfirmarRestaurar`, e a regra pura
+`bkPlanoRestauracao`). Fluxo: escolhe o `.json` → o app lê o banco agora → lista **só** os clientes que têm lançamentos no backup e estão
+**sem lançamentos no banco** (documento ausente ou vazio) → o admin marca quem restaurar → grava só `{ txs }` de cada um.
+**Decisões e porquês:** restaura **apenas lançamentos (`sntx`)**, não as coleções de configuração; **nunca sobrescreve** quem já tem
+lançamento (a lista os ignora e a gravação confere de novo na hora); o que foi lançado depois da data do arquivo **não volta**; nomes
+passam por escape antes de virar `innerHTML`; nada de `confirm()`/`alert()` (regra do sandbox). Lição registrada: apagar no console do
+Firebase não tem volta — **baixe um backup antes de mexer direto no banco** e mantenha backups periódicos.
+**Validação:** `node testes/backup.test.cjs` (20), `seguranca.test.cjs`, `depara-core.test.cjs`; `node --check` limpo. Simulação com o backup
+real de 25/10 e o cliente apagado vazio: restaura 1 cliente (11 lançamentos) e ignora 18. No ambiente de teste com Firebase simulado: lista
+só vazios/ausentes, grava só os marcados, cliente que já tinha lançamento fica intacto, nome com `<` não injeta HTML.
+**Pendências:** teste do dono no Live Server com o backup real; avisar no admin quando o último backup passar de 7 dias (não feito).
 
 ### 2026-10-26 · v1.3.0 (correção, branch `fix/botoes-card-cliente`) — Botões do card de cliente vazavam pela borda (admin)
 
