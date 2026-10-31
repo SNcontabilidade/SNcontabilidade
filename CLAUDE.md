@@ -70,6 +70,7 @@ index.html ainda registra o service worker (sw.js) e faz o recarregamento autom�
 | `testes/exemplo-depara.xlsx` | Planilha de exemplo **propositalmente bagunçada** (dados fictícios) para testar o DE-PARA |
 | `backup.js` | **Backup do banco (só admin)**: botão "💾 Backup do banco" na barra lateral que baixa um `.json` com todas as coleções (`BK_COLECOES`). Carregado só pelo `admin.html`; no `app.js` há **1 encaixe** (`bkBotaoHTML` no rodapé da barra). Prefixo `bk*` |
 | `testes/backup.test.cjs` | Testes do backup (`node testes/backup.test.cjs`) |
+| `testes/valor.test.cjs` | Testes do **campo de valor** (`node testes/valor.test.cjs`): extrai do `app.js` o trecho entre os marcadores `CAMPO DE VALOR` |
 | `testes/saldo.test.cjs` | Testes da **fórmula única do saldo** (`node testes/saldo.test.cjs`): extrai do `app.js` o trecho de `isNeg` até `calcResumo`, então nunca diverge do código real. Cobre o caso do cliente, cada operação e a ordem por vencimento |
 | `acesso.js` | **Acesso do cliente (v1.2.0)** — carregado por `index.html` **e** `admin.html`, antes do `app.js`: regras de usuário→conta (`sg*`: hash, e-mail interno, senha do Authentication, `sgPerfil`), login e carga **só dos dados do próprio cliente** (`ac*`: `acEntrar`, `acCarregarCliente`, `acIniciarCliente`), junção do modelo antigo com o novo para o admin (`acMesclarPerfil`, `acUniaoMensagens`, `acMesclarNovoAdmin`) e espelho das configurações (`acEspelharConfig`) |
 | `layout-moderno.css` | **Tema moderno (v1.3.0)**, carregado por `index.html` e `admin.html` **depois** do `style.css` e sobrescrevendo por cima: variáveis de cor/raio/sombra, tipografia Inter, cartões, sidebar, cabeçalho, botões, formulários, login e o **cartão de Saldo** do painel (`.sn-hero`, `.sn-minis`). Só aparência: nenhuma regra de negócio. Tema claro em `body.light` |
@@ -307,7 +308,7 @@ mês(es) selecionado(s); no detalhe do cliente (admin) e no dashboard do admin, 
 
 ### 8.3 Lançamento novo (`saveTx`)
 
-Campos: **Data** (padrão hoje), **Operação** (obrigatória), **Valor** (> 0), **Descrição** (obrigatória, **tem de ser
+Campos: **Data** (padrão hoje), **Operação** (obrigatória), **Valor** (> 0; ver **campo de valor** abaixo), **Descrição** (obrigatória, **tem de ser
 uma da lista** da operação — `validateDesc` apaga texto fora da lista), **Comprovante** (foto ≤ 5 MB, vai ao
 Cloudinary), **Pagamento**, **Banco**, Complemento e Responsável (opcionais).
 
@@ -622,6 +623,26 @@ Confirmadas no código em 24/10/2026. Nenhuma foi alterada por não ter sido ped
 
 > Uma entrada por mudança, **a mais recente no topo**. Formato: data · versão — pedido, feito, decisões e porquês,
 > validação, pendências.
+
+### 2026-10-31 · v1.4.1 (branch `feature/saldo-aplicacoes`, **não** publicada) — Campo de valor: digita normal, vírgula ou ponto
+
+**Pedido do dono:** o campo de valor confundia os clientes (era `type="number"`, que se comporta diferente por navegador/idioma e rejeita
+vírgula em alguns). Quer que o cliente **digite normal** (1234 = mil duzentos e trinta e quatro reais) e que, se ele usar **ponto ou vírgula**,
+o campo também entenda.
+**Feito:** os campos de valor do **lançamento novo** (`#f-valor`), da **edição** (`#edit-valor`) e do **filtro Mín./Máx.** da lista viraram texto com
+teclado numérico do celular (`inputmode="decimal"`). Regras, em `valorNormalizar`/`parseValorBR`/`valorParaCampo` (marcadores `CAMPO DE VALOR`):
+número inteiro é **em reais, nunca centavos**; **vírgula** é o decimal (e os pontos viram milhar); **ponto** é decimal quando é o único e vem
+seguido de até 2 dígitos (`1.5` = 1,5), senão é milhar (`1.500` = 1500, `1.234.567` = 1234567); no máximo 2 casas; letras e `R$` são ignorados;
+colar `R$ 1.234,56` funciona. Enquanto digita o ponto decimal vira vírgula; ao sair do campo mostra `1.234,56`; ao entrar, o texto fica
+selecionado (digitar substitui). A edição de lançamento mostra o valor já formatado. `parseFloat` saiu das quatro leituras.
+**Decisões e porquês:** **não** é máscara de centavos (digitar 1234 não vira 12,34) — o dono pediu "digitando normal"; sem separador de milhar
+**durante** a digitação (só ao sair do campo), porque a máscara ao vivo confunde ponto de milhar com ponto decimal quando se apaga um dígito;
+valor negativo não existe (o sinal é descartado; o sentido vem da operação). Único ponto ambíguo: `1.500` digitado com ponto vale 1500, não 1,5
+— valor com 3 casas decimais não existe em reais.
+**Validação:** `node testes/valor.test.cjs` (24 conferências) e os demais; `node --check` limpo. No ambiente de teste (Firebase simulado, arquivos reais):
+digitando de verdade `1234.5` o campo mostra `1234,5` e ao sair `1.234,50`; salvar `1234`, `89,9`, `1.234,56`, `2500.75` e `1.500` gravou 1234, 89,9,
+1234,56, 2500,75 e 1500; a edição abriu com `1.234,56` e salvou `2.000,10` como 2000,1. `CACHE_NAME` `sn-v8`, `APP_VERSION` `1.4.1`.
+**Pendências:** teste do dono no celular (teclado numérico) e no Live Server antes de publicar.
 
 ### 2026-10-30 · v1.4.0 (branch `feature/saldo-aplicacoes`, **não** publicada) — Saldo único, card Aplicações e lista com complemento
 
