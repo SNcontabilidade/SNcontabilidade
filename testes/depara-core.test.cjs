@@ -102,15 +102,15 @@ eq('sem conta usa 999999 e conta', [R2.lancamentos[0].semConta, R2.resumo.semCon
 
 // ── arquivo .txt ──
 const lanc = [{ data: '25/10/2026', contaDebito: '2010', contaCredito: '1120', valor: 1234.56, historico: 'PIX; Ação – “teste” \n linha2', semConta: false }];
-const t = C.dpGerarTxt(lanc, { delimitador: ';', decimalFmt: 'virgula', codificacao: 'ansi' });
+const t = C.dpGerarTxt(lanc, { formato: 'delimitado', delimitador: ';', decimalFmt: 'virgula', codificacao: 'ansi' });
 eq('delimitador/quebra no histórico não quebram o arquivo', t.texto, '25/10/2026;2010;1120;1234,56;PIX Ação – “teste” linha2\r\n');
 eq('ANSI: ç/ã = 1 byte; – e “” viram 0x96/0x93/0x94', Array.from(t.bytes.slice(-25, -2)).includes(0x96), true);
 eq('ANSI: sem caractere perdido nesse texto', t.trocados, 0);
-const t2 = C.dpGerarTxt([{ ...lanc[0], historico: 'emoji 😀 fim' }], { delimitador: ';', decimalFmt: 'virgula', codificacao: 'ansi' });
+const t2 = C.dpGerarTxt([{ ...lanc[0], historico: 'emoji 😀 fim' }], { formato: 'delimitado', delimitador: ';', decimalFmt: 'virgula', codificacao: 'ansi' });
 eq('ANSI: caractere sem correspondência vira ? e é CONTADO', t2.trocados, 1);
-eq('UTF-8 sem perdas', C.dpGerarTxt([{ ...lanc[0], historico: 'emoji 😀' }], { delimitador: ';', decimalFmt: 'virgula', codificacao: 'utf8' }).trocados, 0);
-eq('aviso vírgula/vírgula', C.dpGerarTxt(lanc, { delimitador: ',', decimalFmt: 'virgula', codificacao: 'ansi' }).avisos.length, 1);
-eq('tab', C.dpGerarTxt(lanc, { delimitador: 'tab', decimalFmt: 'ponto', codificacao: 'utf8' }).texto.split('\t').length, 5);
+eq('UTF-8 sem perdas', C.dpGerarTxt([{ ...lanc[0], historico: 'emoji 😀' }], { formato: 'delimitado', delimitador: ';', decimalFmt: 'virgula', codificacao: 'utf8' }).trocados, 0);
+eq('aviso vírgula/vírgula', C.dpGerarTxt(lanc, { formato: 'delimitado', delimitador: ',', decimalFmt: 'virgula', codificacao: 'ansi' }).avisos.length, 1);
+eq('tab', C.dpGerarTxt(lanc, { formato: 'delimitado', delimitador: 'tab', decimalFmt: 'ponto', codificacao: 'utf8' }).texto.split('\t').length, 5);
 eq('nome do arquivo', C.dpNomeArquivo('Padaria São João Ltda', 2026), 'PadariaSaoJoaoLtda_2026_Lctos.txt');
 
 // ── config antiga (conversor_depara.html) continua válida ──

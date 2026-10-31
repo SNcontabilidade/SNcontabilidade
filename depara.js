@@ -39,12 +39,12 @@ async function dpCarregarIndice() {
   dpState.clientes = (Array.isArray(idx) ? idx : []).filter((c) => c && c.id).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
 }
 function dpSerializar(cfg) {                                    // mapa → lista: nome com "." ou "/" não vira problema de chave
-  const o = Object.assign({}, cfg); o.deParaLista = Object.keys(cfg.deParaMap || {}).map((nome) => ({ nome, conta: cfg.deParaMap[nome] || '' })); delete o.deParaMap;
+  const o = Object.assign({}, cfg); o.deParaLista = Object.keys(cfg.deParaMap || {}).map((nome) => ({ nome, conta: cfg.deParaMap[nome] || '', codigo: (cfg.codigosMap || {})[nome] || '' })); delete o.deParaMap; delete o.codigosMap;
   o.atualizadoEm = new Date().toISOString(); return o;
 }
 function dpDeserializar(raw) {
   const r = raw && typeof raw === 'object' ? Object.assign({}, raw) : {};
-  if (Array.isArray(r.deParaLista)) { r.deParaMap = {}; r.deParaLista.forEach((x) => { if (x && x.nome) r.deParaMap[x.nome] = x.conta || ''; }); }
+  if (Array.isArray(r.deParaLista)) { r.deParaMap = {}; r.codigosMap = {}; r.deParaLista.forEach((x) => { if (x && x.nome) { r.deParaMap[x.nome] = x.conta || ''; if (x.codigo) r.codigosMap[x.nome] = String(x.codigo); } }); }
   return dpNormalizarConfig(r);
 }
 async function dpGravarIndice() { await fsSet('depara_index', dpState.clientes); }
@@ -236,16 +236,17 @@ function dpNomesDePara() {
   Object.keys(cfg.deParaMap).forEach((k) => { if (!mapa.has(k)) mapa.set(k, { nome: k, qtd: 0 }); });
   return Array.from(mapa.values()).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
 }
+function dpSetCodigo(i, v) { const n = dpNomesDePara()[i]; if (!n) return; const c = dpState.cfg.codigosMap, d = String(v).replace(/\D/g, '').slice(0, 5); if (d) c[n.nome] = d; else delete c[n.nome]; dpSalvarAgendado(); dpAgendarAnalise(); }
 function dpSetConta(i, v) { const n = dpNomesDePara()[i]; if (!n) return; const c = dpState.cfg.deParaMap; if (v.trim()) c[n.nome] = v.trim(); else delete c[n.nome]; dpSalvarAgendado(); dpAgendarAnalise(); }
-function dpRemoverDePara(i) { const n = dpNomesDePara()[i]; if (!n) return; delete dpState.cfg.deParaMap[n.nome]; dpSalvarAgendado(); dpReanalisar(); dpRenderSec('depara'); dpRenderSec('interp'); dpRenderSec('gerar'); }
+function dpRemoverDePara(i) { const n = dpNomesDePara()[i]; if (!n) return; delete dpState.cfg.deParaMap[n.nome]; delete dpState.cfg.codigosMap[n.nome]; dpSalvarAgendado(); dpReanalisar(); dpRenderSec('depara'); dpRenderSec('interp'); dpRenderSec('gerar'); }
 function dpAddDePara() {
-  const nome = (document.getElementById('dp-add-nome') || {}).value || '', conta = (document.getElementById('dp-add-conta') || {}).value || '';
+  const nome = (document.getElementById('dp-add-nome') || {}).value || '', conta = (document.getElementById('dp-add-conta') || {}).value || '', cod = ((document.getElementById('dp-add-cod') || {}).value || '').replace(/\D/g, '').slice(0, 5);
   if (!nome.trim() || !conta.trim()) return;
-  dpState.cfg.deParaMap[nome.trim()] = conta.trim(); dpState.novoDePara = false; dpSalvarAgendado(); dpReanalisar(); dpRenderSec('depara'); dpRenderSec('interp'); dpRenderSec('gerar');
+  dpState.cfg.deParaMap[nome.trim()] = conta.trim(); if (cod) dpState.cfg.codigosMap[nome.trim()] = cod; dpState.novoDePara = false; dpSalvarAgendado(); dpReanalisar(); dpRenderSec('depara'); dpRenderSec('interp'); dpRenderSec('gerar');
 }
 
 // ── regras por palavra-chave ─────────────────────────────────────────────────
-function dpResetRegra() { dpState.regra = { id: null, keywords: [], banco: '', natureza: dpState.cfg ? dpState.cfg.naturezaPadrao : 'PAGAMENTO', conta: '', exemplo: '', filtroEx: '' }; }
+function dpResetRegra() { dpState.regra = { id: null, keywords: [], banco: '', natureza: dpState.cfg ? dpState.cfg.naturezaPadrao : 'PAGAMENTO', conta: '', codigo: '', exemplo: '', filtroEx: '' }; }
 function dpHistDaLinha(r) {                                     // igual ao histórico que dpAnalisar monta (base + colunas extras)
   const m = dpState.mapa, i = m.historico !== '' ? m.historico : m.fornecedor;
   return [i === '' ? '' : dpTexto(r[i])].concat((m.extras || []).map((c) => dpTexto(r[c]))).filter(Boolean).join(' · ');
@@ -273,7 +274,7 @@ function dpSalvarRegra() {
   const r = dpState.regra;
   if (!r.keywords.length) { dpMsg('regra', 'Selecione ao menos uma palavra-chave.', 'warn'); return dpRenderSec('regras'); }
   if (!String(r.conta).trim()) { dpMsg('regra', 'Informe a conta contábil da regra.', 'warn'); return dpRenderSec('regras'); }
-  const nova = { id: r.id || 'r' + Date.now().toString(36), keywords: r.keywords.slice(), banco: r.banco, natureza: r.natureza, conta: String(r.conta).trim() };
+  const nova = { id: r.id || 'r' + Date.now().toString(36), keywords: r.keywords.slice(), banco: r.banco, natureza: r.natureza, conta: String(r.conta).trim(), codigo: String(r.codigo || '').replace(/\D/g, '').slice(0, 5) };
   const regras = dpState.cfg.regras, i = regras.findIndex((x) => x.id === nova.id);
   if (i >= 0) regras[i] = nova; else regras.push(nova);
   dpMsg('regra', 'Regra salva.', 'ok'); dpResetRegra(); dpSalvarAgendado(); dpReanalisar(); dpState.confirmou = false;
@@ -281,7 +282,7 @@ function dpSalvarRegra() {
 }
 function dpEditarRegra(id) {
   const x = dpState.cfg.regras.find((q) => q.id === id); if (!x) return;
-  dpState.regra = { id: x.id, keywords: x.keywords.slice(), banco: x.banco || '', natureza: x.natureza, conta: x.conta, exemplo: '', filtroEx: '' };
+  dpState.regra = { id: x.id, keywords: x.keywords.slice(), banco: x.banco || '', natureza: x.natureza, conta: x.conta, codigo: x.codigo || '', exemplo: '', filtroEx: '' };
   dpMsg('regra', '', ''); dpRenderSec('regras'); const el = document.getElementById('dp-s-regras'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 function dpRemoverRegra(id) { dpState.cfg.regras = dpState.cfg.regras.filter((x) => x.id !== id); if (dpState.regra.id === id) dpResetRegra(); dpSalvarAgendado(); dpReanalisar(); dpRenderSec('regras'); dpRenderSec('interp'); dpRenderSec('gerar'); }
@@ -293,7 +294,12 @@ function dpFiltrarExemplos(v) { dpState.regra.filtroEx = v; const el = document.
 // ── geração ──────────────────────────────────────────────────────────────────
 function dpProblemas() {
   const a = dpState.analise; if (!a) return 0;
-  return a.resumo.erros + a.resumo.semConta + a.resumo.avisos + a.resumo.transferencias + (dpState.conf && !dpState.conf.pronto ? 1 : 0);   // leitura de confiança baixa também exige conferir
+  return a.resumo.erros + a.resumo.semConta + a.resumo.avisos + a.resumo.transferencias + (dpState.conf && !dpState.conf.pronto ? 1 : 0) + dpAvisosLayout().length;   // leitura de confiança baixa e avisos do layout também exigem conferir
+}
+function dpOpcoesTxt() { const c = dpState.cfg; return { formato: c.formato, delimitador: c.delimitador, decimalFmt: c.decimalFmt, codificacao: c.codificacao }; }
+function dpAvisosLayout() {                                      // só o layout Contmatic acusa: conta fora de 7 dígitos, código/histórico grande, arquivo que cruza anos
+  const a = dpState.analise, c = dpState.cfg; if (!a || !c || c.formato === 'delimitado' || !a.lancamentos.length) return [];
+  return dpGerarTxt(a.lancamentos, dpOpcoesTxt()).avisos;
 }
 function dpPodeGerar() {
   const a = dpState.analise;
@@ -305,7 +311,7 @@ function dpPodeGerar() {
 function dpGerar() {
   const g = dpPodeGerar(); if (!g.ok) return;
   dpSalvarLayout();                                           // guarda o mapeamento confirmado para o próximo arquivo deste cliente
-  const cfg = dpState.cfg, r = dpGerarTxt(dpState.analise.lancamentos, { delimitador: cfg.delimitador, decimalFmt: cfg.decimalFmt, codificacao: cfg.codificacao });
+  const cfg = dpState.cfg, r = dpGerarTxt(dpState.analise.lancamentos, dpOpcoesTxt());
   dpBaixar(r.bytes, dpNomeArquivo(dpNomeAtual(), cfg.ano), 'application/octet-stream');
   dpMsg('gerar', 'Arquivo gerado com ' + dpState.analise.lancamentos.length + ' lançamento(s)' + (r.trocados ? ' — ATENÇÃO: ' + r.trocados + ' caractere(s) sem correspondência em ANSI viraram "?"' : '') + '.', r.trocados ? 'warn' : 'ok');
   dpRenderSec('gerar');
@@ -421,21 +427,24 @@ dpSec.config = () => {
     '<div class="field"><label class="label">Conta para não identificados</label><input class="inp" value="' + dpEsc(c.contaPadrao) + '" placeholder="999999" oninput="dpCfg(\'contaPadrao\',this.value.trim()||\'999999\')"/><div class="dp-dica">Usada quando nenhuma regra nem DE-PARA reconhece a linha.</div></div>' +
     '<div class="field"><label class="label">Ano do arquivo de saída</label><input class="inp" type="number" value="' + dpEsc(c.ano) + '" placeholder="2026" oninput="dpCfg(\'ano\',this.value.trim())"/><div class="dp-dica">Vai no nome do arquivo e avisa se houver datas de outro ano.</div></div>' +
     '<div class="field"><label class="label">Natureza quando nada define</label>' + sel('naturezaPadrao', c.naturezaPadrao, [['PAGAMENTO', 'Pagamento'], ['RECEBIMENTO', 'Recebimento']]) + '</div>' +
-    '<div class="field"><label class="label">Separador de campos</label>' + sel('delimitador', c.delimitador, [[';', 'ponto e vírgula ( ; )'], [',', 'vírgula ( , )'], ['tab', 'tabulação']]) + '</div>' +
-    '<div class="field"><label class="label">Formato do valor</label>' + sel('decimalFmt', c.decimalFmt, [['virgula', '1500,00 (vírgula decimal)'], ['ponto', '1500.00 (ponto decimal)']]) + '</div>' +
-    '<div class="field"><label class="label">Codificação do arquivo</label>' + sel('codificacao', c.codificacao, [['ansi', 'ANSI / Windows-1252 (padrão do Contmatic)'], ['utf8', 'UTF-8']]) + '</div></div>' +
+    '<div class="field"><label class="label">Formato do arquivo</label>' + sel('formato', c.formato, [['contmatic', 'Contmatic — posicional, 330 colunas (padrão)'], ['delimitado', 'Delimitado por ; (formato antigo)']]) + '</div>' +
+    (c.formato === 'delimitado'
+      ? '<div class="field"><label class="label">Separador de campos</label>' + sel('delimitador', c.delimitador, [[';', 'ponto e vírgula ( ; )'], [',', 'vírgula ( , )'], ['tab', 'tabulação']]) + '</div>' +
+        '<div class="field"><label class="label">Formato do valor</label>' + sel('decimalFmt', c.decimalFmt, [['virgula', '1500,00 (vírgula decimal)'], ['ponto', '1500.00 (ponto decimal)']]) + '</div>' +
+        '<div class="field"><label class="label">Codificação do arquivo</label>' + sel('codificacao', c.codificacao, [['ansi', 'ANSI / Windows-1252 (padrão do Contmatic)'], ['utf8', 'UTF-8']]) + '</div>'
+      : '<div class="field"><label class="label">Código padrão do histórico</label><input class="inp" inputmode="numeric" maxlength="5" value="' + dpEsc(c.codigoPadrao) + '" placeholder="00000" oninput="dpCfg(\'codigoPadrao\',this.value.replace(/\D/g,\'\').slice(0,5).padStart(5,\'0\'))"/><div class="dp-dica">Usado quando o nome (DE-PARA) ou a regra não tem código próprio. Nos arquivos de referência aparece 00000.</div></div>') + '</div>' +
     '<label class="dp-check"><input type="checkbox" ' + (c.usarSinal ? 'checked' : '') + ' onchange="dpCfgRerender(\'usarSinal\',this.checked)"/> O <b>sinal do valor</b> define a natureza (negativo = pagamento, positivo = recebimento) quando não há coluna Tipo nem regra</label>' +
     '<div class="dp-dica">O valor vai sempre <b>positivo</b> no arquivo; o sinal só serve para decidir débito/crédito.</div>';
 };
 
 function dpLinhaDePara(n, i) {
   const idx = dpIndiceDePara(dpState.cfg.deParaMap), conta = dpState.cfg.deParaMap[n.nome] || '', ref = conta ? '' : (dpAchaConta(idx, n.nome) || {});
-  return '<tr><td class="dp-nome" title="' + dpEsc(n.nome) + '">' + dpEsc(n.nome) + '</td><td class="dp-num-c">' + (n.qtd || '—') + '</td><td><input class="inp dp-conta-in" value="' + dpEsc(conta) + '" placeholder="' + (ref.conta ? 'por aproximação: ' + dpEsc(ref.conta) : 'conta') + '" oninput="dpSetConta(' + i + ',this.value)"/></td><td><button class="btn btn-ghost btn-sm" onclick="dpRemoverDePara(' + i + ')" title="Remover da lista">×</button></td></tr>';
+  return '<tr><td class="dp-nome" title="' + dpEsc(n.nome) + '">' + dpEsc(n.nome) + '</td><td class="dp-num-c">' + (n.qtd || '—') + '</td><td><input class="inp dp-conta-in" value="' + dpEsc(conta) + '" placeholder="' + (ref.conta ? 'por aproximação: ' + dpEsc(ref.conta) : 'conta') + '" oninput="dpSetConta(' + i + ',this.value)"/></td><td><input class="inp dp-cod-in" inputmode="numeric" maxlength="5" style="max-width:90px" value="' + dpEsc((dpState.cfg.codigosMap || {})[n.nome] || '') + '" placeholder="' + dpEsc(dpState.cfg.codigoPadrao) + '" title="Código de 5 dígitos que vai no arquivo (vazio = código padrão do cliente)" oninput="dpSetCodigo(' + i + ',this.value)"/></td><td><button class="btn btn-ghost btn-sm" onclick="dpRemoverDePara(' + i + ')" title="Remover da lista">×</button></td></tr>';
 }
 function dpCorpoDePara() {
   const todos = dpNomesDePara(), f = dpNorm(dpState.filtroDePara);
   const lista = todos.map((n, i) => ({ n, i })).filter(({ n }) => (!f || dpNorm(n.nome).includes(f)) && (!dpState.soSemConta || !dpState.cfg.deParaMap[n.nome]));
-  return lista.length ? lista.slice(0, 300).map(({ n, i }) => dpLinhaDePara(n, i)).join('') + (lista.length > 300 ? '<tr><td colspan="4" class="dp-dica" style="padding:10px">… e mais ' + (lista.length - 300) + '. Use o filtro.</td></tr>' : '') : '<tr><td colspan="4" class="dp-dica" style="padding:14px">Nenhum nome encontrado. Confira a coluna de fornecedor/histórico na seção 3, ou adicione um item manualmente.</td></tr>';
+  return lista.length ? lista.slice(0, 300).map(({ n, i }) => dpLinhaDePara(n, i)).join('') + (lista.length > 300 ? '<tr><td colspan="5" class="dp-dica" style="padding:10px">… e mais ' + (lista.length - 300) + '. Use o filtro.</td></tr>' : '') : '<tr><td colspan="5" class="dp-dica" style="padding:14px">Nenhum nome encontrado. Confira a coluna de fornecedor/histórico na seção 3, ou adicione um item manualmente.</td></tr>';
 }
 function dpRenderDeParaCorpo() { const el = document.getElementById('dp-depara-corpo'); if (el && dpState.cfg) el.innerHTML = dpCorpoDePara(); }
 dpSec.depara = () => {
@@ -443,8 +452,8 @@ dpSec.depara = () => {
   const todos = dpNomesDePara(), sem = todos.filter((n) => !dpState.cfg.deParaMap[n.nome]).length;
   return dpTitulo(6, 'DE-PARA por nome', 'Quando o fornecedor aparece limpo numa coluna, informe a conta direto. Vale nome idêntico (sem diferenciar maiúsculas e acentos); por aproximação só para nomes de 4+ letras.') +
     '<div class="dp-linha"><input class="inp" placeholder="Filtrar nomes…" value="' + dpEsc(dpState.filtroDePara) + '" oninput="dpState.filtroDePara=this.value;dpRenderDeParaCorpo()" style="max-width:260px"/><label class="dp-check"><input type="checkbox" ' + (dpState.soSemConta ? 'checked' : '') + ' onchange="dpState.soSemConta=this.checked;dpRenderDeParaCorpo()"/> só os sem conta (' + sem + ')</label><span class="dp-dica">' + todos.length + ' nome(s)</span></div>' +
-    '<div class="dp-tabela-wrap dp-depara-wrap"><table class="dp-tabela"><thead><tr><th>Fornecedor / Banco</th><th>Linhas</th><th>Conta contábil</th><th></th></tr></thead><tbody id="dp-depara-corpo">' + dpCorpoDePara() + '</tbody></table></div>' +
-    (dpState.novoDePara ? '<div class="dp-linha"><input id="dp-add-nome" class="inp" placeholder="Nome do fornecedor/banco"/><input id="dp-add-conta" class="inp" placeholder="Conta" style="max-width:140px"/><button class="btn btn-acc btn-sm" onclick="dpAddDePara()">Adicionar</button><button class="btn btn-ghost btn-sm" onclick="dpState.novoDePara=false;dpRenderSec(\'depara\')">Cancelar</button></div>' : '<div class="dp-acoes"><button class="btn btn-ghost btn-sm" onclick="dpState.novoDePara=true;dpRenderSec(\'depara\')">+ Adicionar item manual</button></div>');
+    '<div class="dp-tabela-wrap dp-depara-wrap"><table class="dp-tabela"><thead><tr><th>Fornecedor / Banco</th><th>Linhas</th><th>Conta contábil</th><th>Código</th><th></th></tr></thead><tbody id="dp-depara-corpo">' + dpCorpoDePara() + '</tbody></table></div>' +
+    (dpState.novoDePara ? '<div class="dp-linha"><input id="dp-add-nome" class="inp" placeholder="Nome do fornecedor/banco"/><input id="dp-add-conta" class="inp" placeholder="Conta" style="max-width:140px"/><input id="dp-add-cod" class="inp" inputmode="numeric" maxlength="5" placeholder="Código" style="max-width:100px"/><button class="btn btn-acc btn-sm" onclick="dpAddDePara()">Adicionar</button><button class="btn btn-ghost btn-sm" onclick="dpState.novoDePara=false;dpRenderSec(\'depara\')">Cancelar</button></div>' : '<div class="dp-acoes"><button class="btn btn-ghost btn-sm" onclick="dpState.novoDePara=true;dpRenderSec(\'depara\')">+ Adicionar item manual</button></div>');
 };
 
 function dpOpcoesExemplo() {
@@ -464,7 +473,7 @@ function dpHtmlListaRegras() {
   const dados = dpState.arq ? dpDadosRows() : [];
   return '<p class="dp-dica">A <b>primeira</b> regra que combinar vale — use ↑ ↓ para mudar a prioridade.</p>' + regras.map((x, i) => {
     const n = dados.filter((r) => dpCasaRegra(dpHistDaLinha(r), dpBancoDaLinha(r), x, temB)).length;
-    return '<div class="dp-regra"><div class="dp-regra-i">' + (i + 1) + '</div><div class="dp-regra-c"><div class="dp-chips">' + x.keywords.map((k) => '<span class="dp-chip dp-chip--ign">' + dpEsc(k) + '</span>').join('') + '</div><div class="dp-dica">Conta <b>' + dpEsc(x.conta) + '</b> · ' + x.natureza.toLowerCase() + (x.banco ? ' · banco ' + dpEsc(x.banco) : '') + ' · ' + (dpState.arq ? n + ' lançamento(s) neste arquivo' : 'abra um arquivo para contar') + '</div></div><div class="dp-regra-a"><button class="btn btn-ghost btn-sm" onclick="dpMoverRegra(\'' + x.id + '\',-1)" ' + (i === 0 ? 'disabled' : '') + '>↑</button><button class="btn btn-ghost btn-sm" onclick="dpMoverRegra(\'' + x.id + '\',1)" ' + (i === regras.length - 1 ? 'disabled' : '') + '>↓</button><button class="btn btn-ghost btn-sm" onclick="dpEditarRegra(\'' + x.id + '\')">Editar</button><button class="btn btn-danger btn-sm" onclick="dpRemoverRegra(\'' + x.id + '\')">Remover</button></div></div>';
+    return '<div class="dp-regra"><div class="dp-regra-i">' + (i + 1) + '</div><div class="dp-regra-c"><div class="dp-chips">' + x.keywords.map((k) => '<span class="dp-chip dp-chip--ign">' + dpEsc(k) + '</span>').join('') + '</div><div class="dp-dica">Conta <b>' + dpEsc(x.conta) + '</b>' + (x.codigo ? ' · código <b>' + dpEsc(x.codigo) + '</b>' : '') + ' · ' + x.natureza.toLowerCase() + (x.banco ? ' · banco ' + dpEsc(x.banco) : '') + ' · ' + (dpState.arq ? n + ' lançamento(s) neste arquivo' : 'abra um arquivo para contar') + '</div></div><div class="dp-regra-a"><button class="btn btn-ghost btn-sm" onclick="dpMoverRegra(\'' + x.id + '\',-1)" ' + (i === 0 ? 'disabled' : '') + '>↑</button><button class="btn btn-ghost btn-sm" onclick="dpMoverRegra(\'' + x.id + '\',1)" ' + (i === regras.length - 1 ? 'disabled' : '') + '>↓</button><button class="btn btn-ghost btn-sm" onclick="dpEditarRegra(\'' + x.id + '\')">Editar</button><button class="btn btn-danger btn-sm" onclick="dpRemoverRegra(\'' + x.id + '\')">Remover</button></div></div>';
   }).join('');
 }
 function dpRenderRegrasLista() { const el = document.getElementById('dp-regras-lista'); if (el && dpState.cfg) el.innerHTML = dpHtmlListaRegras(); }
@@ -478,7 +487,8 @@ dpSec.regras = () => {
     '<div class="field"><label class="label">Palavras-chave da regra (todas precisam aparecer)</label><div class="dp-chips">' + (r.keywords.length ? r.keywords.map((k, i) => '<span class="dp-chip dp-chip--kw">' + dpEsc(k) + '<button onclick="dpRemoverKeyword(' + i + ')">×</button></span>').join('') : '<span class="dp-dica">Nenhuma palavra selecionada ainda.</span>') + '</div><input id="dp-kw-in" class="inp" placeholder="ou digite uma palavra e aperte Enter" onkeydown="dpAddKeyword(event)" style="max-width:320px;margin-top:8px"/></div>' +
     '<div class="dp-grade3"><div class="field"><label class="label">Banco (opcional)</label><div class="sel-wrap"><select class="sel" onchange="dpRegraCampo(\'banco\',this.value)"><option value="">— qualquer banco —</option>' + bancos.map((b) => '<option value="' + dpEsc(b) + '"' + (b === r.banco ? ' selected' : '') + '>' + dpEsc(b) + '</option>').join('') + '</select><span class="sel-arr">▼</span></div>' + (dpState.mapa.banco === '' ? '<div class="dp-dica">Mapeie a coluna Banco (seção 3) para filtrar por banco.</div>' : '') + '</div>' +
     '<div class="field"><label class="label">Natureza desta regra</label><div class="sel-wrap"><select class="sel" onchange="dpRegraCampo(\'natureza\',this.value)"><option value="PAGAMENTO"' + (r.natureza === 'PAGAMENTO' ? ' selected' : '') + '>Pagamento</option><option value="RECEBIMENTO"' + (r.natureza === 'RECEBIMENTO' ? ' selected' : '') + '>Recebimento</option></select><span class="sel-arr">▼</span></div></div>' +
-    '<div class="field"><label class="label">Conta contábil</label><input class="inp" value="' + dpEsc(r.conta) + '" placeholder="Ex: 30119" oninput="dpRegraCampo(\'conta\',this.value)"/></div></div>' +
+    '<div class="field"><label class="label">Conta contábil</label><input class="inp" value="' + dpEsc(r.conta) + '" placeholder="Ex: 30119" oninput="dpRegraCampo(\'conta\',this.value)"/></div>' +
+    '<div class="field"><label class="label">Código do histórico (5 dígitos)</label><input class="inp" inputmode="numeric" maxlength="5" value="' + dpEsc(r.codigo || '') + '" placeholder="' + dpEsc(dpState.cfg.codigoPadrao) + '" oninput="dpRegraCampo(\'codigo\',this.value.replace(/\D/g,\'\'))"/><div class="dp-dica">Vai no arquivo do Contmatic. Vazio = código padrão do cliente.</div></div></div>' +
     '<div class="field" id="dp-impactados">' + dpHtmlImpactados() + '</div>' +
     '<div class="dp-acoes"><button class="btn btn-acc btn-sm" onclick="dpSalvarRegra()">' + (r.id ? 'Salvar alterações' : 'Salvar regra') + '</button><button class="btn btn-ghost btn-sm" onclick="dpLimparRegra()">Limpar formulário</button></div>' + dpMsgHtml('regra') +
     '<h4 class="dp-h4">Regras salvas deste cliente</h4><div id="dp-regras-lista">' + dpHtmlListaRegras() + '</div>';
@@ -487,9 +497,10 @@ dpSec.regras = () => {
 dpSec.gerar = () => {
   const a = dpState.analise; if (!dpState.arq || !dpState.cfg) return '';
   const g = dpPodeGerar(), cfg = dpState.cfg, prob = dpProblemas();
-  const pre = a && a.lancamentos.length ? '<div class="dp-tabela-wrap dp-gerar-prev"><table class="dp-tabela"><thead><tr><th>Data</th><th>Débito</th><th>Crédito</th><th>Valor</th><th>Histórico</th></tr></thead><tbody>' + a.lancamentos.slice(0, 8).map((l) => '<tr class="' + (l.semConta ? 'dp-l--aviso' : '') + '"><td>' + l.data + '</td><td>' + l.contaDebito + '</td><td>' + l.contaCredito + '</td><td class="dp-dir">' + dpFmtValor(l.valor, cfg.decimalFmt) + '</td><td>' + dpEsc(dpLimpaCampo(l.historico, cfg.delimitador === 'tab' ? '\t' : cfg.delimitador).slice(0, 60)) + '</td></tr>').join('') + '</tbody></table></div><p class="dp-dica">Primeiras 8 linhas, como vão no arquivo. Total: ' + a.lancamentos.length + '.</p>' : '';
+  const preContmatic = a && a.lancamentos.length && cfg.formato !== 'delimitado' ? '<div class="dp-tabela-wrap dp-gerar-prev"><pre class="dp-pre" style="margin:0;padding:10px 12px;font-size:11.5px;line-height:1.5;overflow-x:auto;white-space:pre">' + dpEsc(dpGerarTxt(a.lancamentos.slice(0, 8), dpOpcoesTxt()).texto.split('\r\n').filter(Boolean).map((x) => x.replace(/\s+$/, '')).join('\n')) + '</pre></div><p class="dp-dica">Primeiras 8 linhas, <b>como vão no arquivo</b> (sequencial · dia/mês · débito · crédito · valor · código · histórico). Cada linha sai com 330 colunas. Total: ' + a.lancamentos.length + '.</p>' : '';
+  const pre = preContmatic || (a && a.lancamentos.length ? '<div class="dp-tabela-wrap dp-gerar-prev"><table class="dp-tabela"><thead><tr><th>Data</th><th>Débito</th><th>Crédito</th><th>Valor</th><th>Histórico</th></tr></thead><tbody>' + a.lancamentos.slice(0, 8).map((l) => '<tr class="' + (l.semConta ? 'dp-l--aviso' : '') + '"><td>' + l.data + '</td><td>' + l.contaDebito + '</td><td>' + l.contaCredito + '</td><td class="dp-dir">' + dpFmtValor(l.valor, cfg.decimalFmt) + '</td><td>' + dpEsc(dpLimpaCampo(l.historico, cfg.delimitador === 'tab' ? '\t' : cfg.delimitador).slice(0, 60)) + '</td></tr>').join('') + '</tbody></table></div><p class="dp-dica">Primeiras 8 linhas, como vão no arquivo. Total: ' + a.lancamentos.length + '.</p>' : '');
   const conf = g.precisaConfirmar || (prob > 0 && dpState.confirmou) ? '<label class="dp-check dp-check--forte"><input type="checkbox" ' + (dpState.confirmou ? 'checked' : '') + ' onchange="dpState.confirmou=this.checked;dpRenderSec(\'gerar\')"/> Revisei os avisos e quero gerar mesmo assim (' + (a ? a.resumo.erros : 0) + ' linha(s) com erro ficam de fora do arquivo; ' + (a ? a.resumo.semConta : 0) + ' sem conta usam ' + dpEsc(cfg.contaPadrao) + ')</label>' : '';
-  const avisosFmt = dpGerarTxt([{ data: '', contaDebito: '', contaCredito: '', valor: 1, historico: '' }], { delimitador: cfg.delimitador, decimalFmt: cfg.decimalFmt, codificacao: cfg.codificacao }).avisos;
+  const avisosFmt = cfg.formato === 'delimitado' ? dpGerarTxt([{ data: '', contaDebito: '', contaCredito: '', valor: 1, historico: '' }], dpOpcoesTxt()).avisos : dpAvisosLayout().slice(0, 8);
   return dpTitulo(8, 'Gerar e baixar', 'Ordem: 1) regras por palavra-chave (a primeira que combinar), 2) DE-PARA por nome, 3) conta de não identificados.') + pre +
     avisosFmt.map((x) => '<div class="dp-msg dp-msg--warn">' + dpEsc(x) + '</div>').join('') + (!g.ok ? '<div class="dp-msg dp-msg--' + (g.precisaConfirmar ? 'warn' : 'info') + '">' + dpEsc(g.motivo) + '</div>' : '') + conf +
     '<div class="dp-acoes"><button class="btn btn-acc" ' + (g.ok ? '' : 'disabled') + ' onclick="dpGerar()">⬇ Baixar .txt' + (a && a.lancamentos.length ? ' (' + a.lancamentos.length + ' lançamentos)' : '') + '</button></div>' + dpMsgHtml('gerar');
