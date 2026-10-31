@@ -227,22 +227,18 @@ const uid=()=>Math.random().toString(36).slice(2,10)+Date.now().toString(36);
 const todayStr=()=>new Date().toISOString().slice(0,10);
 const isNeg=op=>['despesa','retirada'].includes(op);
 // ─── FLUXO FINANCEIRO · fonte ÚNICA do saldo (painel, histórico, lista, relatório e admin usam esta) ───
-// Entra: receita, aporte, empréstimo. Sai: despesa, retirada, compras (estoque e bens) e aplicações (investimento).
-// Neutros (não mexem no saldo): entre bancos e operações personalizadas. "Despesas" continua sendo só despesa + retirada.
-const OPS_COMPRA=['estoque','bens'];
-const OPS_ENTRADA=['receita','aporte','emprestimo'];
+// Saldo = Receitas − Despesas (despesa + retirada) − Aplicações (investimento). Tudo o mais ("Outros": estoque, bens,
+// aporte, empréstimo, entre bancos, personalizadas) NÃO mexe no saldo e só aparece no card Outros.
 const OP_APLICACAO='investimento';
-const isSaida=op=>isNeg(op)||OPS_COMPRA.includes(op)||op===OP_APLICACAO;
-const fluxoSinal=op=>isSaida(op)?-1:(OPS_ENTRADA.includes(op)?1:0);
+const isSaida=op=>isNeg(op)||op===OP_APLICACAO;
+const fluxoSinal=op=>isSaida(op)?-1:(op==='receita'?1:0);
 const calcResumo=list=>{
   const soma=fn=>list.filter(fn).reduce((a,t)=>a+t.valor,0);
   const rec=soma(t=>t.operation==='receita');
   const desp=soma(t=>isNeg(t.operation));
   const aplic=soma(t=>t.operation===OP_APLICACAO);
-  const compras=soma(t=>OPS_COMPRA.includes(t.operation));
-  const entradas=soma(t=>t.operation==='aporte'||t.operation==='emprestimo');
   const outros=soma(t=>t.operation!=='receita'&&!isNeg(t.operation)&&t.operation!==OP_APLICACAO);   // aplicação tem card próprio
-  return{rec,desp,aplic,compras,entradas,outros,saldo:rec+entradas-desp-compras-aplic};
+  return{rec,desp,aplic,outros,saldo:rec-desp-aplic};
 };
 const fmtCur=v=>'R$ '+Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
 const fmtDate=v=>v?new Date(v+'T12:00:00').toLocaleDateString('pt-BR'):'';
@@ -1119,7 +1115,7 @@ async function exportExcel(){
   const head=['Data','Operação','Descrição','Banco','Complemento','Responsável','Valor (R$)','Situação','Vencimento'];
   const linhas=list.map(t=>[fmtDate(t.date),getOp(t.operation)?.label||t.operation,(t.descricao||'')+parcTag(t),t.banco||'',t.complemento||'',t.responsavel||'',sinal(t)*t.valor,isPend(t)?'Pendente':'Pago',t.vencimento?fmtDate(t.vencimento):'']);
   const topo=[[client.razaoSocial],['CNPJ: '+(client.cnpj||'')],['Gerado em '+new Date().toLocaleString('pt-BR')],[]];
-  const fim=[[],['','','','','','Receitas',RR.rec],['','','','','','Despesas',-RR.desp],...(RR.compras?[['','','','','','Compras (estoque e bens)',-RR.compras]]:[]),...(RR.aplic?[['','','','','','Aplicações',-RR.aplic]]:[]),...(RR.entradas?[['','','','','','Aportes e empréstimos',RR.entradas]]:[]),['','','','','','Saldo',RR.saldo],['','','','','','Pendente (a prazo)',pend]];
+  const fim=[[],['','','','','','Receitas',RR.rec],['','','','','','Despesas',-RR.desp],...(RR.aplic?[['','','','','','Aplicações',-RR.aplic]]:[]),['','','','','','Saldo',RR.saldo],['','','','','','Pendente (a prazo)',pend]];
   const nome='Relatorio_'+(client.razaoSocial||'cliente').normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^A-Za-z0-9]+/g,'_').replace(/^_|_$/g,'')+'_'+localToday()+'.xlsx';
   try{
     const X=await loadSheetJS();
@@ -1189,9 +1185,7 @@ function printRelatorio(){
   <div class="totais">
     <span>Receitas: <strong style="color:#10b981">${fmtCur(rec)}</strong></span>
     <span>Despesas: <strong style="color:#ef4444">${fmtCur(desp)}</strong></span>
-    ${RP.compras?`<span>Compras: <strong style="color:#ef4444">${fmtCur(RP.compras)}</strong></span>`:''}
     ${RP.aplic?`<span>Aplicações: <strong style="color:#ef4444">${fmtCur(RP.aplic)}</strong></span>`:''}
-    ${RP.entradas?`<span>Aportes e empréstimos: <strong style="color:#10b981">${fmtCur(RP.entradas)}</strong></span>`:''}
     <span>Saldo: <strong style="color:${saldo>=0?'#10b981':'#ef4444'}">${fmtCur(saldo)}</strong></span>
   </div>
   <div class="footer">SN Soluções Contábeis · Sistema de Gestão Financeira</div>

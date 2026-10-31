@@ -272,15 +272,14 @@ Menu: **Dashboard**, **Clientes**, **Bancos**, **Descrições**, **Operações**
 Operações padrão (`OPS`): **Receita, Retirada, Bens, Estoque, Despesa, Aporte, Investimento, Empréstimo, Entre bancos**
 (esta última em largura total). Mais as personalizadas do admin.
 
-- **`isNeg(op)` = `despesa` ou `retirada`** → saem do saldo (sinal −). **Todas as outras** (inclusive `entre_bancos`,
-  `estoque`, `bens`, `aporte`, `investimento`, `emprestimo` e as personalizadas) contam como positivo.
 - `valor` é sempre guardado positivo; o sinal é aplicado só na exibição e nas somas.
 - **Sinal de cada operação (desde a v1.4.0), fonte única em `fluxoSinal(op)`:**
-  - **Entram (+):** `receita`, `aporte`, `emprestimo`.
-  - **Saem (−):** `despesa`, `retirada` (`isNeg`), `estoque`, `bens` (**compras**, `OPS_COMPRA`) e `investimento` (**aplicação**, `OP_APLICACAO`).
-  - **Neutras (0):** `entre_bancos` e as operações personalizadas — não mexem no saldo.
-  - `isNeg` continua existindo e continua significando só despesa/retirada (é o que define o card **Despesas**).
-    `isSaida(op)` = qualquer operação que sai do saldo (usada para sinal e cor na exibição).
+  - **Entra (+):** só `receita`.
+  - **Sai (−):** `despesa`, `retirada` (`isNeg`) e `investimento` (**aplicação**, `OP_APLICACAO`).
+  - **Neutras (0, não mexem no saldo — compõem o card "Outros"):** `estoque`, `bens`, `aporte`, `emprestimo`, `entre_bancos` e as
+    personalizadas. Na lista aparecem com valor positivo, como sempre.
+  - `isNeg` continua significando só despesa/retirada (é o que define o card **Despesas**). `isSaida(op)` = `isNeg` ou
+    investimento (usada para sinal e cor na exibição).
 
 ### 8.2 Cálculo dos cards (uma fórmula só de Saldo, em `calcResumo`)
 
@@ -293,12 +292,12 @@ Excel, dashboard, ranking, cartão e detalhe do cliente no admin, cartão de Sal
 | **Despesas** | soma das `isNeg` (**despesa + retirada**) |
 | **Aplicações** (card próprio, `#14b8a6`) | soma de `investimento` |
 | **Outros** | soma de tudo que não é `receita`, despesa/retirada **nem investimento** (estoque, bens, aporte, empréstimo, entre bancos, personalizadas) |
-| **Saldo** | `Receitas + Aportes + Empréstimos − Despesas − Compras (estoque e bens) − Aplicações` |
+| **Saldo** | `Receitas − Despesas − Aplicações` (só o investimento sai das receitas; **"Outros" não entra na conta**) |
 | **Total Lançamentos** | quantidade de registros — **cada parcela / cada mês contínuo conta como um** |
 
 "Outros" é só informativo (uma visão do que não é receita nem despesa); o **Saldo não é calculado a partir dele**. Os
 lançamentos **pendentes entram no saldo** (a dívida existe desde o lançamento); o card Pendente mostra quanto ainda não foi pago.
-O cartão de Saldo lista a composição (receitas, aportes/empréstimos, despesas, compras, aplicações).
+O cartão de Saldo lista a composição (receitas − despesas − aplicações).
 
 **Pendente (card roxo `#a855f7`)** = soma de `valor` dos lançamentos com `status==='pendente'` (`pendKpi`), com a
 quantidade entre parênteses. **Não é um valor a mais**: o pendente **já está** contado em Receitas/Despesas/Outros/Saldo
@@ -389,9 +388,8 @@ Botão **🖨️ Imprimir / Exportar** → janela com duas opções:
   totais) e dispara a impressão do navegador (o "salvar como PDF" é do próprio navegador). Exige *popup* liberado.
 - **Excel (.xlsx)** (`exportExcel`): planilha com topo (cliente, CNPJ, geração), colunas **Data, Operação,
   Descrição (com "(n/N)"), Banco, Complemento, Responsável, Valor (R$), Situação (Pago/Pendente), Vencimento**,
-  ordenada por data; **valor com sinal** (negativo em tudo que sai do saldo — despesa, retirada, estoque, bens e
-  investimento —, formato `#,##0.00;[Red]-#,##0.00`) e rodapé com **Receitas, Despesas, Compras, Aplicações, Aportes e
-  empréstimos, Saldo** (fórmula da 8.2) e **Pendente (a prazo)**. Nome:
+  ordenada por data; **valor com sinal** (negativo em despesa, retirada e investimento, formato `#,##0.00;[Red]-#,##0.00`) e rodapé
+  com **Receitas, Despesas, Aplicações, Saldo** (fórmula da 8.2) e **Pendente (a prazo)**. Nome:
   `Relatorio_<CLIENTE>_<AAAA-MM-DD>.xlsx`. A biblioteca é baixada na hora; **sem internet cai para `.csv`**
   (`;`, vírgula decimal, BOM UTF-8).
 - Os dois usam o mesmo recorte (`relatorioTxs()` = `S.clientPeriod`, hoje vazio ⇒ **todos** os lançamentos).
@@ -583,9 +581,10 @@ Voltar atrás: `git revert <commit>` + push (e nova troca de `CACHE_NAME`).
 
 Confirmadas no código em 24/10/2026. Nenhuma foi alterada por não ter sido pedida.
 
-1. ~~Duas fórmulas de Saldo~~ — **resolvida na v1.4.0**: fórmula única em `calcResumo` (regra 8.2). **Em aberto, a
-   confirmar com o dono:** aporte e empréstimo **somam** ao saldo e entre bancos/operações personalizadas são **neutras**
-   (padrões assumidos, não pedidos); pendentes continuam contando no saldo; não há linha "disponível × investido" separada.
+1. ~~Duas fórmulas de Saldo~~ — **resolvida na v1.4.0**: fórmula única em `calcResumo` (regra 8.2). **Atenção:** o dono
+   pediu que **só o investimento** saia das receitas; compras de estoque/bens e "Outros" em geral **não** mexem no saldo (uma
+   1ª versão da v1.4.0 subtraía as compras e foi corrigida no mesmo dia). Se um dia as compras **pagas** devessem reduzir o
+   saldo, é decisão nova do dono. Não há linha "disponível × investido" separada.
 2. **Gráficos e relatório do Painel ignoram o filtro de meses** (usam `clientPeriod`, sempre vazio) — mostram tudo,
    enquanto os cards respeitam a seleção.
 3. **Segurança de acesso e de dados — em revisão.** O plano de correção (etapas, riscos e compatibilidade com o app dos
@@ -626,31 +625,33 @@ Confirmadas no código em 24/10/2026. Nenhuma foi alterada por não ter sido ped
 ### 2026-10-30 · v1.4.0 (branch `feature/saldo-aplicacoes`, **não** publicada) — Saldo único, card Aplicações e lista com complemento
 
 **Pedido (duas ponderações do dono):** (1) na lista de lançamentos mostrar o **complemento** (fornecedor) e, **só no filtro Pendente**,
-ordenar por **vencimento** (o que vence primeiro no topo); (2) o saldo ignorava compras: investimento e compra de mercadoria
-(estoque) têm de **subtrair** do saldo, a aplicação **não** pode somar em "Outros" e ganha **card próprio "Aplicações"**.
+ordenar por **vencimento** (o que vence primeiro no topo); (2) o **investimento** tem de **subtrair das receitas**, **não** pode somar em
+"Outros" e ganha **card próprio "Aplicações"**. **Correção no mesmo dia:** a 1ª versão também subtraía compras de estoque/bens
+e somava aportes/empréstimos; o dono corrigiu ("era só para subtrair meu investimento das minhas receitas") e o saldo ficou
+`Receitas − Despesas − Aplicações`.
 **Feito:**
-- `calcResumo(lista)` + `fluxoSinal`/`isSaida`/`OPS_COMPRA`/`OPS_ENTRADA`/`OP_APLICACAO` no `app.js`: **uma fórmula só** de saldo
+- `calcResumo(lista)` + `fluxoSinal`/`isSaida`/`OP_APLICACAO` no `app.js`: **uma fórmula só** de saldo
   (regras 8.1 e 8.2), usada em painel, histórico, lista, PDF, Excel, dashboard, ranking, cartão e detalhe do cliente e no cartão de
   Saldo do `layout-moderno.js`. Acabou a divergência entre telas (antiga pendência 1).
 - Card **Aplicações** (`#14b8a6`) no painel, histórico, detalhe do cliente e dashboard do admin; "Outros" deixa de somar investimento;
-  o cartão de Saldo mostra a composição (receitas, aportes/empréstimos, despesas, compras, aplicações). `layout-moderno.css`: a faixa
+  o cartão de Saldo mostra a composição (receitas − despesas − aplicações). `layout-moderno.css`: a faixa
   de mini cards passou a `auto-fit` para caber o card novo.
 - Lista: linha do **complemento** em cada lançamento; filtro Pendente ordena por vencimento crescente (sem vencimento no fim, empate
   pela data do lançamento); saldo do resumo da lista vem de `calcResumo`; nome do banco só aparece em texto quando não há logo
-  (corrige o nome duplicado); `bankLogo` passou a escapar nome/alt. Sinal e cor de exibição usam `isSaida` (compras e aplicações
-  aparecem com "−").
+  (corrige o nome duplicado); `bankLogo` passou a escapar nome/alt. Sinal e cor de exibição usam `isSaida` (despesa, retirada e aplicação
+  aparecem com "−"; o resto continua positivo como antes).
 - `sw.js`: `CACHE_NAME` `sn-v7`. `APP_VERSION` `1.4.0`.
-**Decisões e porquês:** compra à vista **ou a prazo** reduz o saldo no ato do lançamento (a dívida já existe — decisão antiga mantida);
-**aporte e empréstimo somam** e **entre bancos/personalizadas são neutras** — padrões assumidos por falta de pedido, a confirmar;
-`isNeg` não mudou de significado (continua sendo o card Despesas), para não mexer em quem já dependia dele; o dado salvo não muda
-(`valor` segue positivo), só a leitura. **Efeito esperado:** cliente com estoque/bens lançados vai ver o saldo **cair** na primeira
-abertura da nova versão.
-**Validação:** `node testes/saldo.test.cjs` (25), `seguranca.test.cjs`, `backup.test.cjs`, `depara-core.test.cjs`; `node --check` limpo.
-No ambiente de teste local (Firebase simulado, arquivos reais): cenário do dono (receita 5.987,83, despesa 29,39, quatro compras de
-estoque pendentes, investimento 1.000,00) → saldo −3.840,99, Outros 8.799,43 sem a aplicação, Aplicações 1.000,00, lista Pendente
-ordenada 30/10, 01/11, 02/11, 10/11 com complemento; admin (dashboard e detalhe) com o mesmo cálculo; sem erro no console.
-**Pendências:** teste do dono no Live Server (cliente e admin, PDF/Excel) antes de publicar; confirmar os padrões de aporte,
-empréstimo e entre bancos; avaliar a linha "disponível / investido" que o dono citou como exemplo.
+**Decisões e porquês:** "Outros" (estoque, bens, aporte, empréstimo, entre bancos, personalizadas) fica **fora** do saldo — é o
+que o dono pediu; `isNeg` não mudou de significado (continua sendo o card Despesas); o dado salvo não muda (`valor` segue
+positivo), só a leitura. **Efeito esperado:** o saldo de quem tem investimento lançado cai pelo valor aplicado; quem não tem
+investimento vê o mesmo saldo de antes no Painel/Histórico (que já ignoravam "Outros") — a lista e o admin, que somavam "Outros",
+passam a bater com eles.
+**Validação:** `node testes/saldo.test.cjs` (22), `seguranca.test.cjs`, `backup.test.cjs`, `depara-core.test.cjs`; `node --check` limpo.
+No ambiente de teste local (Firebase simulado, arquivos reais): cenário do dono (receita 5.987,83, despesa 29,39, estoque pendente
+8.801,40, investimento 1.000,00) → saldo 4.958,44, Outros 8.801,40, Aplicações 1.000,00; lista Pendente ordenada por vencimento com
+complemento; admin com o mesmo cálculo; sem erro no console.
+**Pendências:** teste do dono no Live Server (cliente e admin, PDF/Excel) antes de publicar; avaliar a linha "disponível /
+investido" que o dono citou como exemplo.
 
 ### 2026-10-26 · v1.3.0 (correção, branch `fix/botoes-card-cliente`) — Botões do card de cliente vazavam pela borda (admin)
 

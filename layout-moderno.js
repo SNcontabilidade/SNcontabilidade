@@ -55,7 +55,7 @@
   // Cartão de Saldo + cards menores (o app.js chama isto no lugar da grade de 6 cards)
   window.snPainelHero = function (d) {
     const nPend = d.txs.filter(isPend).length, somaPend = d.txs.filter(isPend).reduce((a, t) => a + t.valor, 0);
-    // saldo acumulado dia a dia (mesma fórmula do card: fluxoSinal do app.js — entradas somam; despesas, compras e aplicações subtraem)
+    // saldo acumulado dia a dia (mesma fórmula do card: fluxoSinal do app.js — receitas somam; despesas e aplicações subtraem)
     const porDia = {};
     d.txs.forEach((t) => { const s = fluxoSinal(t.operation) * t.valor; porDia[t.date] = (porDia[t.date] || 0) + s; });
     let acc = 0; const labels = [], data = [];
@@ -72,9 +72,7 @@
           <div class="sn-hero__val">${fmt(d.saldo)}</div>
           <div class="sn-hero__sub">${[
             fmt(d.rec) + ' de receitas',
-            d.entradas ? '+ ' + fmt(d.entradas) + ' de aportes e empréstimos' : '',
             '− ' + fmt(d.desp) + ' de despesas',
-            d.compras ? '− ' + fmt(d.compras) + ' de compras (estoque e bens)' : '',
             d.aplic ? '− ' + fmt(d.aplic) + ' de aplicações' : '',
           ].filter(Boolean).join(' ')}</div>
           ${nPend ? `<button class="sn-hero__pend" onclick="showPendentes()">⏳ ${fmt(somaPend)} a pagar · ${nPend} lançamento${nPend > 1 ? 's' : ''} pendente${nPend > 1 ? 's' : ''} <span>→</span></button>` : ''}
