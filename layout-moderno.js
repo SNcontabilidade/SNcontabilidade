@@ -52,6 +52,15 @@
   const cTxt = () => claro() ? '#6a7186' : '#8b92a5';
   const cGrade = () => claro() ? 'rgba(20,24,40,.07)' : 'rgba(255,255,255,.06)';
 
+  // A legenda do saldo aparece ao abrir e some sozinha; o botão ⓘ mostra de novo (e ela some outra vez)
+  const LEGENDA_MS = 7000;
+  window.snHeroLegenda = function (mostrar) {
+    const el = document.getElementById('sn-hero-sub'); if (!el) return;
+    clearTimeout(window.__snLegT);
+    if (mostrar) el.classList.remove('is-oculta');
+    window.__snLegT = setTimeout(() => { const e = document.getElementById('sn-hero-sub'); if (e) e.classList.add('is-oculta'); }, LEGENDA_MS);
+  };
+
   // Cartão de Saldo + cards menores (o app.js chama isto no lugar da grade de 6 cards)
   window.snPainelHero = function (d) {
     const nPend = d.txs.filter(isPend).length, somaPend = d.txs.filter(isPend).reduce((a, t) => a + t.valor, 0);
@@ -66,11 +75,12 @@
     const outrosIco = ico('https://res.cloudinary.com/dk10wezy9/image/upload/v1777141665/Outros_aebx7k.png');
     const mini = (cor, icone, val, lbl) => `<div class="sn-mini" style="--c:${cor}"><div class="sn-mini__ico">${icone}</div><div class="sn-mini__body"><div class="sn-mini__val" style="color:${cor}">${val}</div><div class="sn-mini__lbl">${lbl}</div></div></div>`;
     const pos = d.saldo >= 0;
+    setTimeout(() => window.snHeroLegenda(false), 0);
     return `<section class="sn-hero ${pos ? 'is-pos' : 'is-neg'}">
         <div class="sn-hero__main">
-          <div class="sn-hero__label">Saldo do período <span class="sn-hero__per">${d.periodo}</span></div>
+          <div class="sn-hero__label">Saldo do período <span class="sn-hero__per">${d.periodo}</span><button type="button" class="sn-hero__info" onclick="snHeroLegenda(true)" title="Ver como o saldo é calculado" aria-label="Ver como o saldo é calculado">ⓘ</button></div>
           <div class="sn-hero__val">${fmt(d.saldo)}</div>
-          <div class="sn-hero__sub">${[
+          <div class="sn-hero__sub" id="sn-hero-sub">${[
             fmt(d.liq.rec) + ' de receitas',
             d.liq.desp ? '− ' + fmt(d.liq.desp) + ' de despesas' : '',
             d.liq.compras ? '− ' + fmt(d.liq.compras) + ' de compras (estoque e bens)' : '',

@@ -642,6 +642,9 @@ Regra final: `Receitas − Despesas − Compras (estoque e bens) − Aplicaçõe
   pela data do lançamento); saldo do resumo da lista vem de `calcResumo` (no filtro Pendente o resumo vira "Total a pagar"); nome do banco só aparece em texto quando não há logo
   (corrige o nome duplicado); `bankLogo` passou a escapar nome/alt. Sinal e cor de exibição usam `isSaida` (despesa, retirada, estoque, bens e aplicação
   aparecem com "−"; aporte, empréstimo etc. continuam positivos).
+- **Legenda do cartão de Saldo some sozinha** (pedido do dono: "vai chegar uma hora que vai atrapalhar"): aparece ao abrir, some em 7 s com
+  transição suave (`.sn-hero__sub.is-oculta`, `LEGENDA_MS` em `layout-moderno.js`) e o botão **ⓘ** ao lado do período mostra de novo
+  (`snHeroLegenda(true)`), sumindo outra vez. Cada render do cartão reinicia a contagem.
 - `sw.js`: `CACHE_NAME` `sn-v7`. `APP_VERSION` `1.4.0`.
 **Decisões e porquês:** o saldo é **regime de caixa** — só conta o que já foi pago/recebido, pela marca `status` (pendente × pago), sem
 olhar a data de vencimento: o dono é quem dá a baixa. Vale para **qualquer** operação pendente (inclusive receita a receber);
