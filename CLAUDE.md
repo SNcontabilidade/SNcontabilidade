@@ -643,6 +643,9 @@ obtém 1.050 (o campo mostra `1.050` na hora); valor negativo não existe (o sin
 **Validação:** `node testes/valor.test.cjs` (41 conferências) e os demais; `node --check` limpo. No ambiente de teste (Firebase simulado, arquivos reais):
 digitando de verdade (teclado) `2.222,22` o campo mostra `2.222,22`, `1234567` vira `1.234.567` e inserir um 9 no meio mantém o cursor; ao sair `1234.5` colado vira `1.234,50`; salvar `1234`, `89,9`, `1.234,56`, `2500.75` e `1.500` gravou 1234, 89,9,
 1234,56, 2500,75 e 1500; a edição abriu com `1.234,56` e salvou `2.000,10` como 2000,1. `CACHE_NAME` `sn-v8`, `APP_VERSION` `1.4.1`.
+**Também nesta versão — complemento (fornecedor) visível para identificar de quem é o lançamento:** além da lista de lançamentos (já tinha,
+v1.4.0), agora aparece no **Histórico** (linha em negrito abaixo da descrição, classe `tx-compl`) e em **Últimos Lançamentos** do painel (cliente e
+admin), sempre com `esc()`. A lista com o filtro Pendente já mostrava.
 **Pendências:** teste do dono no celular (teclado numérico) e no Live Server antes de publicar.
 
 ### 2026-10-30 · v1.4.0 (branch `feature/saldo-aplicacoes`, **não** publicada) — Saldo único, card Aplicações e lista com complemento
