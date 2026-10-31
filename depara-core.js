@@ -281,14 +281,14 @@ function dpAnalisar(linhas, linhaCab, mapa, cfg) {
       res.linhas.push(L); res.resumo.ignoradas++; res.resumo.transferencias++; continue;
     }
     // conta e natureza
-    let conta, origemConta, natureza, origemNat, semConta = false;
+    let conta, origemConta, natureza, origemNat, semConta = false, codigoLinha = '';
     const regra = dpAchaRegra(cfg.regras, L.hist, L.banco, temBanco);
     if (regra) {
-      conta = regra.conta; origemConta = 'regra: ' + (regra.keywords || []).join(' + '); natureza = regra.natureza; origemNat = 'regra';
+      conta = regra.conta; origemConta = 'regra: ' + (regra.keywords || []).join(' + '); natureza = regra.natureza; origemNat = 'regra'; codigoLinha = regra.codigo || '';
       if (dir && dir !== natureza) L.avisos.push('a regra diz ' + natureza.toLowerCase() + ', mas o valor está na coluna de ' + (dir === 'PAGAMENTO' ? 'saída' : 'entrada'));
     } else {
       const m = dpAchaConta(idx, L.forn || L.hist);
-      if (m) { conta = m.conta; origemConta = 'DE-PARA ' + (m.tipo === 'exato' ? 'exato' : 'contém "' + m.chave + '"'); if (m.tipo !== 'exato') L.avisos.push('conta por aproximação ("' + m.chave + '") — confira'); }
+      if (m) { conta = m.conta; codigoLinha = (cfg.codigosMap && cfg.codigosMap[m.chave]) || ''; origemConta = 'DE-PARA ' + (m.tipo === 'exato' ? 'exato' : 'contém "' + m.chave + '"'); if (m.tipo !== 'exato') L.avisos.push('conta por aproximação ("' + m.chave + '") — confira'); }
       else { conta = contaPadrao; origemConta = 'sem regra nem DE-PARA'; semConta = true; L.avisos.push('sem conta definida: usando ' + contaPadrao); }
       if (dir) { natureza = dir; origemNat = 'coluna de ' + (dir === 'PAGAMENTO' ? 'saída' : 'entrada'); }
       else if (nt0) { natureza = nt0; origemNat = 'coluna Tipo'; }
@@ -302,6 +302,7 @@ function dpAnalisar(linhas, linhaCab, mapa, cfg) {
     const caixa = String(cfg.contaCaixa || '').trim();
     L.contaDebito = natureza === 'PAGAMENTO' ? conta : caixa; L.contaCredito = natureza === 'PAGAMENTO' ? caixa : conta;
     L.natureza = natureza; L.origemConta = origemConta; L.origemNat = origemNat; L.semConta = semConta;
+    L.codigo = dpCodigo5(codigoLinha, cfg.codigoPadrao);
     if (semConta) res.resumo.semConta++;
     if (pd.corrigida) L.avisos.push('data lida de "' + pd.original + '" (caracteres extras ignorados)');
     if (ehTotal) L.avisos.push('parece uma linha de total/saldo — confira se deve entrar');
@@ -311,7 +312,7 @@ function dpAnalisar(linhas, linhaCab, mapa, cfg) {
     if (L.avisos.length) { L.status = 'aviso'; res.resumo.avisos++; }
     res.resumo.validas++;
     res.linhas.push(L);
-    res.lancamentos.push({ linha: L.linha, data: pd.br, contaDebito: L.contaDebito, contaCredito: L.contaCredito, valor: Math.abs(pv.valor), historico: L.hist, natureza, semConta });
+    res.lancamentos.push({ linha: L.linha, data: pd.br, contaDebito: L.contaDebito, contaCredito: L.contaCredito, valor: Math.abs(pv.valor), historico: L.hist, natureza, semConta, codigo: L.codigo });
   }
   return res;
 }
@@ -368,7 +369,42 @@ function dpCodificarAnsi(texto) {
 }
 // o delimitador, quebras de linha e tabs dentro do histórico quebrariam as colunas: viram espaço
 function dpLimpaCampo(s, delim) { return String(s == null ? '' : s).split(delim).join(' ').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim(); }
+// ── layout POSICIONAL do Contmatic (padrão dos arquivos que o contador importa) ──
+// Conferido em 109 arquivos reais (8.464 lançamentos): 100% idênticos neste desenho. Linha de 330 colunas, quebra CRLF, sem cabeçalho nem rodapé:
+//   1-7  sequencial do lançamento (0000001, 0000002…, recomeça em cada arquivo)
+//   8-12 dia/mês (dd/mm — o padrão NÃO tem ano)
+//   13-19 conta de débito (7 dígitos, zeros à esquerda)   20-26 conta de crédito (7 dígitos)
+//   27-43 valor: 14 inteiros + "." + 2 decimais (sempre positivo)
+//   44-48 código de 5 dígitos (por descrição/regra; sem código = o padrão do cliente, 00000)
+//   49-330 histórico em MAIÚSCULAS, sem acento, completado com espaços
+const DP_POS_LARGURA = 330, DP_POS_HIST = 282;
+function dpCodigo5(v, padrao) {                                                    // só dígitos; vazio usa o padrão; devolve preenchido com zeros (NÃO corta: o gerador acusa se passar de 5)
+  const d = String(v == null ? '' : v).replace(/\D/g, ''), p = String(padrao == null ? '' : padrao).replace(/\D/g, '');
+  return (d || p || '0').padStart(5, '0');
+}
+function dpHistContmatic(h) { return String(h == null ? '' : h).normalize('NFD').replace(DP_RE_ACENTOS, '').toUpperCase().replace(/[^\x20-\x7E]/g, ' ').replace(/\s+/g, ' ').trim(); }
+function dpLinhaContmatic(seq, l, avisos) {
+  const lin = 'lançamento ' + seq;
+  const conta = (c, qual) => { const t = String(c == null ? '' : c).trim(); if (/^\d{1,7}$/.test(t)) return t.padStart(7, '0'); avisos.push(lin + ': conta de ' + qual + ' "' + t + '" não cabe em 7 dígitos numéricos — saiu 0000000'); return '0000000'; };
+  const m = String(l.data || '').match(/^(\d{2}\/\d{2})\/\d{4}$/);
+  if (!m) avisos.push(lin + ': data "' + l.data + '" fora de dd/mm/aaaa');
+  const v = Math.abs(Number(l.valor) || 0).toFixed(2), [ent, dec] = v.split('.');
+  if (ent.length > 14) avisos.push(lin + ': valor grande demais para 14 dígitos inteiros');
+  let cod = dpCodigo5(l.codigo); if (cod.length !== 5) { avisos.push(lin + ': código "' + l.codigo + '" tem mais de 5 dígitos — saiu 00000'); cod = '00000'; }
+  let hist = dpHistContmatic(l.historico); if (hist.length > DP_POS_HIST) { avisos.push(lin + ': histórico com ' + hist.length + ' caracteres, cortado em ' + DP_POS_HIST); hist = hist.slice(0, DP_POS_HIST); }
+  const linha = String(seq).padStart(7, '0') + (m ? m[1] : '00/00') + conta(l.contaDebito, 'débito') + conta(l.contaCredito, 'crédito') + ent.padStart(14, '0') + '.' + dec + cod + hist;
+  return linha.padEnd(DP_POS_LARGURA, ' ');
+}
+function dpGerarTxtContmatic(lancs, o) {
+  const avisos = [], anos = new Set();
+  lancs.forEach((l) => { const a = String(l.data || '').slice(6, 10); if (a) anos.add(a); });
+  if (anos.size > 1) avisos.push('os lançamentos cruzam mais de um ano (' + [...anos].sort().join(', ') + '): o padrão do Contmatic guarda só dia/mês — gere um arquivo por ano');
+  const texto = lancs.map((l, i) => dpLinhaContmatic(i + 1, l, avisos)).join('\r\n') + '\r\n';
+  const r = dpCodificarAnsi(texto);
+  return { bytes: r.bytes, trocados: r.trocados, avisos, texto };
+}
 function dpGerarTxt(lancs, o) {
+  if (o.formato !== 'delimitado') return dpGerarTxtContmatic(lancs, o);            // padrão: layout posicional do Contmatic
   const delim = o.delimitador === 'tab' ? '\t' : (o.delimitador || ';');
   const linhas = lancs.map((l) => [l.data, l.contaDebito, l.contaCredito, dpFmtValor(l.valor, o.decimalFmt), dpLimpaCampo(l.historico, delim)].join(delim));
   const texto = linhas.join('\r\n') + '\r\n';
@@ -383,13 +419,16 @@ function dpNomeArquivo(cliente, ano) { return (String(cliente || 'EMPRESA').norm
 
 // ── configuração do cliente (Firestore) ──────────────────────────────────────
 function dpConfigVazia() {
-  return { contaCaixa: '', contaPadrao: DP_CONTA_PADRAO, delimitador: ';', decimalFmt: 'virgula', codificacao: 'ansi', naturezaPadrao: 'PAGAMENTO', usarSinal: false, ano: '', deParaMap: {}, regras: [], layout: null };
+  return { contaCaixa: '', contaPadrao: DP_CONTA_PADRAO, formato: 'contmatic', codigoPadrao: '00000', delimitador: ';', decimalFmt: 'virgula', codificacao: 'ansi', naturezaPadrao: 'PAGAMENTO', usarSinal: false, ano: '', deParaMap: {}, codigosMap: {}, regras: [], layout: null };
 }
 // aceita config nova e o formato do conversor antigo (mesmos nomes de campo)
 function dpNormalizarConfig(raw) {
   const c = Object.assign(dpConfigVazia(), raw && typeof raw === 'object' ? raw : {});
   c.deParaMap = c.deParaMap && typeof c.deParaMap === 'object' && !Array.isArray(c.deParaMap) ? c.deParaMap : {};
-  c.regras = (Array.isArray(c.regras) ? c.regras : []).filter((r) => r && Array.isArray(r.keywords)).map((r, i) => ({ id: r.id || 'r' + (i + 1), keywords: r.keywords.map(String), banco: r.banco || '', natureza: r.natureza === 'RECEBIMENTO' ? 'RECEBIMENTO' : 'PAGAMENTO', conta: String(r.conta || '') }));
+  c.codigosMap = c.codigosMap && typeof c.codigosMap === 'object' && !Array.isArray(c.codigosMap) ? c.codigosMap : {};
+  c.formato = c.formato === 'delimitado' ? 'delimitado' : 'contmatic';
+  c.codigoPadrao = String(c.codigoPadrao == null || c.codigoPadrao === '' ? '00000' : c.codigoPadrao).replace(/\D/g, '').slice(0, 5).padStart(5, '0');
+  c.regras = (Array.isArray(c.regras) ? c.regras : []).filter((r) => r && Array.isArray(r.keywords)).map((r, i) => ({ id: r.id || 'r' + (i + 1), keywords: r.keywords.map(String), banco: r.banco || '', natureza: r.natureza === 'RECEBIMENTO' ? 'RECEBIMENTO' : 'PAGAMENTO', conta: String(r.conta || ''), codigo: String(r.codigo || '').replace(/\D/g, '').slice(0, 5) }));
   c.naturezaPadrao = c.naturezaPadrao === 'RECEBIMENTO' ? 'RECEBIMENTO' : 'PAGAMENTO';
   c.delimitador = [';', ',', 'tab'].includes(c.delimitador) ? c.delimitador : ';';
   c.decimalFmt = c.decimalFmt === 'ponto' ? 'ponto' : 'virgula';
@@ -406,5 +445,5 @@ function dpUnicos(linhas, linhaCab, idx, max) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { dpNorm, dpParseData, dpParseValor, dpFmtValor, dpIndiceDePara, dpAchaConta, dpCasaRegra, dpAchaRegra, dpNaturezaDoTipo, dpDetectarCabecalho, dpCabPadrao, dpDetectarColunas, dpAssinatura, dpAnalisar, dpConfianca, dpMapaVazio, dpCodificarAnsi, dpGerarTxt, dpNomeArquivo, dpNormalizarConfig, dpConfigVazia, dpTokenizar, dpColLetra, dpUnicos, dpLimpaCampo };
+  module.exports = { dpNorm, dpParseData, dpParseValor, dpFmtValor, dpIndiceDePara, dpAchaConta, dpCasaRegra, dpAchaRegra, dpNaturezaDoTipo, dpDetectarCabecalho, dpCabPadrao, dpDetectarColunas, dpAssinatura, dpAnalisar, dpConfianca, dpMapaVazio, dpCodificarAnsi, dpGerarTxt, dpNomeArquivo, dpNormalizarConfig, dpConfigVazia, dpTokenizar, dpColLetra, dpUnicos, dpLimpaCampo, dpCodigo5, dpHistContmatic, dpLinhaContmatic, dpGerarTxtContmatic, DP_POS_LARGURA, DP_POS_HIST };
 }

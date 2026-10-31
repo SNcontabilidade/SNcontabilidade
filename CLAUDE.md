@@ -66,10 +66,11 @@ index.html ainda registra o service worker (sw.js) e faz o recarregamento autom�
 | `depara-core.js` | **DE-PARA, núcleo puro** (sem DOM e sem Firebase): lê data/valor, detecta cabeçalho e colunas, resolve contas, analisa linha a linha e gera o `.txt`. Roda no navegador e no Node (testes). Prefixo `dp*`/`DP_*` |
 | `depara.js` | **DE-PARA, tela do admin**: clientes no Firestore, upload, prévia, mapeamento, regras, geração. Expõe `admDepara()` |
 | `depara.css` | Estilo do DE-PARA, tudo prefixado `.dp-` e só com variáveis de tema do app |
+| `testes/depara-contmatic.test.cjs` | Testes do **layout posicional do Contmatic** (`node testes/depara-contmatic.test.cjs`, 42 conferências, dados fictícios) |
 | `testes/depara-core.test.cjs` | Única bateria automatizada do projeto: `node testes/depara-core.test.cjs` (109 conferências do núcleo) |
 | `testes/exemplo-depara.xlsx` | Planilha de exemplo **propositalmente bagunçada** (dados fictícios) para testar o DE-PARA |
-| `backup.js` | **Backup do banco (só admin)**: botão "💾 Backup do banco" na barra lateral que baixa um `.json` com todas as coleções (`BK_COLECOES`). Carregado só pelo `admin.html`; no `app.js` há **1 encaixe** (`bkBotaoHTML` no rodapé da barra). Prefixo `bk*` |
-| `testes/backup.test.cjs` | Testes do backup (`node testes/backup.test.cjs`) |
+| `backup.js` | **Backup do banco (só admin)**: botão "💾 Backup do banco" na barra lateral que baixa um `.json` com todas as coleções (`BK_COLECOES`). Carregado só pelo `admin.html`; no `app.js` há **1 encaixe** (`bkBotaoHTML` no rodapé da barra, que agora traz **dois** botões: Backup e **Restaurar do backup**). Prefixo `bk*` |
+| `testes/backup.test.cjs` | Testes do backup e do plano de restauração (`node testes/backup.test.cjs`) |
 | `testes/valor.test.cjs` | Testes do **campo de valor** (`node testes/valor.test.cjs`): extrai do `app.js` o trecho entre os marcadores `CAMPO DE VALOR` |
 | `testes/saldo.test.cjs` | Testes da **fórmula única do saldo** (`node testes/saldo.test.cjs`): extrai do `app.js` o trecho de `isNeg` até `calcResumo`, então nunca diverge do código real. Cobre o caso do cliente, cada operação e a ordem por vencimento |
 | `acesso.js` | **Acesso do cliente (v1.2.0)** — carregado por `index.html` **e** `admin.html`, antes do `app.js`: regras de usuário→conta (`sg*`: hash, e-mail interno, senha do Authentication, `sgPerfil`), login e carga **só dos dados do próprio cliente** (`ac*`: `acEntrar`, `acCarregarCliente`, `acIniciarCliente`), junção do modelo antigo com o novo para o admin (`acMesclarPerfil`, `acUniaoMensagens`, `acMesclarNovoAdmin`) e espelho das configurações (`acEspelharConfig`) |
@@ -150,9 +151,10 @@ caixa), `password`, `mustChangePwd`, `createdAt`, `appVersion` e `lastLogin` (gr
 **Comunicado** (`messages[]`): `{ id, text, sentAt }`.
 
 **Cliente do DE-PARA** (`sn/depara_c_<id>` → `{ value: ... }`): `contaCaixa`, `contaPadrao` (padrão `999999`),
-`delimitador` (`;` `,` `tab`), `decimalFmt` (`virgula`/`ponto`), `codificacao` (`ansi`/`utf8`), `naturezaPadrao`
-(`PAGAMENTO`/`RECEBIMENTO`), `usarSinal` (bool), `ano`, `deParaLista` (`[{ nome, conta }]`), `regras`
-(`[{ id, keywords[], banco, natureza, conta }]`, **a ordem é a prioridade**), `layout` (`{ assinatura, linhaCab, mapa,
+`formato` (`contmatic` = padrão, posicional; `delimitado` = formato antigo), `codigoPadrao` (5 dígitos, padrão `00000`),
+`delimitador` (`;` `,` `tab`), `decimalFmt` (`virgula`/`ponto`), `codificacao` (`ansi`/`utf8`) — estes três só valem no `delimitado` —, `naturezaPadrao`
+(`PAGAMENTO`/`RECEBIMENTO`), `usarSinal` (bool), `ano`, `deParaLista` (`[{ nome, conta, codigo }]`), `regras`
+(`[{ id, keywords[], banco, natureza, conta, codigo }]`, **a ordem é a prioridade**), `layout` (`{ assinatura, linhaCab, mapa,
 aba }`, o último mapeamento de colunas confirmado) e `atualizadoEm`. O DE-PARA por nome é guardado como **lista**, não
 como mapa, de propósito: nome de fornecedor com `.` ou `/` seria problema como chave do Firestore; em memória
 (`cfg.deParaMap`) continua um mapa `{ nome: conta }`. `dpDeserializar` aceita a lista e também o mapa antigo
@@ -510,8 +512,30 @@ quantos lançamentos pega no arquivo aberto.
 (nome do arquivo e aviso de datas de outro ano — **não filtra** nada), natureza padrão, usar o sinal do valor,
 separador (`;`, `,`, tabulação), formato do valor (`1500,00` ou `1500.00`) e codificação.
 
-**Arquivo gerado.** Uma linha por lançamento: `data;débito;crédito;valor;histórico` (separador e formato conforme o
-cliente), terminada em `\r\n`. O **separador e as quebras de linha dentro do histórico viram espaço** (no conversor
+**Arquivo gerado — layout POSICIONAL do Contmatic (padrão desde 31/10/2026).** O divisor **não é `;`**: cada campo tem
+colunas fixas, preenchido com zeros. Uma linha por lançamento, **330 colunas**, quebra `
+` (inclusive na última), sem cabeçalho nem rodapé:
+
+| Colunas | Campo |
+|---|---|
+| 1–7 | **sequencial** do lançamento (`0000001`, `0000002`…; recomeça em cada arquivo) |
+| 8–12 | **dia/mês** `dd/mm` — **o padrão não tem ano** (arquivo que cruza anos gera aviso; gere um por ano) |
+| 13–19 | conta de **débito**, 7 dígitos com zeros à esquerda (`2017` → `0002017`) |
+| 20–26 | conta de **crédito**, 7 dígitos |
+| 27–43 | **valor**: 14 inteiros + `.` + 2 decimais, sempre positivo (`00000000008475.55`) |
+| 44–48 | **código** de 5 dígitos (ver abaixo) |
+| 49–330 | **histórico** em MAIÚSCULAS, sem acento, completado com espaços (máx. 282; mais que isso é cortado e avisado) |
+
+Conferido em **109 arquivos reais (8.464 lançamentos)**: 100% casam com esse desenho, e o gerador **reproduz os 109 byte a byte**
+(prova de ida e volta rodada na máquina do dono; os arquivos reais **não** estão no repositório). A conta precisa ser **numérica de até 7
+dígitos** — outra coisa gera aviso e sai `0000000` (nada some calado), e os avisos entram na trava "Revisei os avisos". Código: `dpCodigo5`.
+**O campo de 5 dígitos (44–48) NÃO se deduz das contas** (testado: 40 das 228 contas de débito têm mais de um código nos arquivos reais);
+parece o código do histórico padrão do contador (ex.: 00011 em lançamentos de NF, 00024 em holerites, 00042 em guias). Por decisão do dono
+ele vem de uma **tabela no DE-PARA**: coluna **Código** em cada nome e campo **Código do histórico** em cada regra (**a regra vence o nome**);
+o que não tiver código sai com o **código padrão do cliente** (00000, valor que aparece nos arquivos reais). **A confirmar com o contador:**
+o significado exato do código e quais valores usar por tipo de lançamento.
+**Formato antigo** (`data;débito;crédito;valor;histórico`, separador e formato conforme o cliente) continua disponível em Configurações →
+Formato do arquivo → "Delimitado". Nele o **separador e as quebras de linha dentro do histórico viram espaço** (no conversor
 antigo um `;` no histórico quebrava as colunas). Codificação **ANSI de verdade (Windows-1252)** por padrão — letras
 acentuadas, `–`, `—`, `’`, `“ ”` e `€` são preservados; caractere sem correspondência vira `?` e a tela avisa quantos.
 UTF-8 é opção. Nome: `<Cliente sem acento e sem espaço>_<ano>_Lctos.txt` (ex.: `PadariaPaoQuente_2026_Lctos.txt`).
@@ -600,8 +624,9 @@ Confirmadas no código em 24/10/2026. Nenhuma foi alterada por não ter sido ped
 10. **`todayStr()` é UTC** (usado ainda como data padrão do campo "Data"): à noite pode sugerir o dia seguinte.
 11. **Telas legadas** (`grafico`, `tipos`) e a função `makeUser` não têm acesso/uso; `lista` só abre pelo aviso.
 12. **`alert`/`confirm`** não funcionam em `iframe` com sandbox.
-13. **DE-PARA — não validado com o Contmatic real.** O layout do `.txt` (`data;débito;crédito;valor;histórico`) foi
-    herdado do conversor antigo; não houve importação de teste no sistema. Também não foram testados com arquivo real:
+13. **DE-PARA — importação de teste no Contmatic ainda não feita.** O layout posicional foi conferido contra 109 arquivos reais
+    e regerado idêntico, mas **nenhum arquivo gerado pela plataforma foi importado no Contmatic** — e o significado do código de 5 dígitos
+    é a confirmar com o contador. Também não foram testados com arquivo real:
     leitura de **PDF**, gravação no **Firestore real** (as regras do console precisam permitir a escrita do admin nos
     documentos do DE-PARA) e o uso em **celular**.
 14. **DE-PARA — não valida a conta contra o plano de contas** do cliente: um número digitado errado é aceito. Importar o
@@ -624,7 +649,7 @@ Confirmadas no código em 24/10/2026. Nenhuma foi alterada por não ter sido ped
 > Uma entrada por mudança, **a mais recente no topo**. Formato: data · versão — pedido, feito, decisões e porquês,
 > validação, pendências.
 
-### 2026-10-31 · v1.4.1 (branch `feature/saldo-aplicacoes`, **não** publicada) — Campo de valor: digita normal, vírgula ou ponto
+### 2026-10-31 · v1.4.1 (branch `feature/saldo-aplicacoes`, publicada na `main`) — Campo de valor: digita normal, vírgula ou ponto
 
 **Pedido do dono:** o campo de valor confundia os clientes (era `type="number"`, que se comporta diferente por navegador/idioma e rejeita
 vírgula em alguns). Quer que o cliente **digite normal** (1234 = mil duzentos e trinta e quatro reais) e que, se ele usar **ponto ou vírgula**,
@@ -654,7 +679,7 @@ selecionados. A troca é parcial (`setPainelCard` só refaz título, lista e car
 `setPainelCard` (`app.js`) e o `mini()` de `snPainelHero` (`layout-moderno.js`, `data-card`, teclado Enter/Espaço). Só no painel do **cliente**.
 **Pendências:** teste do dono no celular (teclado numérico) e no Live Server antes de publicar.
 
-### 2026-10-30 · v1.4.0 (branch `feature/saldo-aplicacoes`, **não** publicada) — Saldo único, card Aplicações e lista com complemento
+### 2026-10-30 · v1.4.0 (branch `feature/saldo-aplicacoes`, publicada na `main`) — Saldo único, card Aplicações e lista com complemento
 
 **Pedido (duas ponderações do dono):** (1) na lista de lançamentos mostrar o **complemento** (fornecedor) e, **só no filtro Pendente**,
 ordenar por **vencimento** (o que vence primeiro no topo); (2) o **investimento** tem de **subtrair das receitas**, **não** pode somar em
@@ -697,6 +722,43 @@ pendentes, uma paga de 500,00, investimento 1.000,00) → saldo 4.458,44; ao bai
 complemento; admin com o mesmo cálculo; sem erro no console.
 **Pendências:** teste do dono no Live Server (cliente e admin, PDF/Excel) antes de publicar; avaliar a linha "disponível /
 investido" que o dono citou como exemplo.
+
+### 2026-10-31 · só admin, sem mudar a versão do app (branch `feature/depara-layout-contmatic`, publicada na `main`) — DE-PARA gera o arquivo no padrão posicional do Contmatic
+
+**Pedido do dono:** o arquivo que o DE-PARA gerava (`data;débito;crédito;valor;histórico`) não é o que o Contmatic importa. Um comparativo mostrou que
+a outra plataforma gera, **sem `;`**, colunas fixas preenchidas com zeros, com um **sequencial de 7 dígitos** por lançamento. Pediu para entender o padrão
+**sem deduzir** — só aplicar o que for assertivo.
+**Como foi feito (sem deduzir):** achei 109 arquivos reais nesse padrão nas pastas de clientes (8.464 linhas) e medi cada coluna: 100% das linhas
+batem num único desenho (tabela na seção 8.11), com 330 colunas, CRLF, sequencial `0000001..N` sem falha em todos os arquivos. Depois escrevi o
+gerador e **regerei os 109 arquivos: todos idênticos byte a byte**.
+**Feito:** `dpGerarTxtContmatic` / `dpLinhaContmatic` / `dpCodigo5` / `dpHistContmatic` (`depara-core.js`); `dpGerarTxt` usa o layout novo por padrão e o antigo só com
+`formato:'delimitado'`. Config do cliente ganhou `formato` (clientes antigos já abrem no novo) e `codigoPadrao`; DE-PARA ganhou a coluna **Código**
+(`codigosMap`, salvo na `deParaLista`) e as regras o campo `codigo`; a prévia de "Gerar e baixar" mostra as 8 primeiras linhas **como vão no
+arquivo**; os avisos do layout (conta fora de 7 dígitos, código/histórico grande, cruza anos) entram na trava de confirmação.
+**Decisões e porquês:** o **campo de 5 dígitos (44–48) não é dedutível** das contas (testado) — o dono escolheu uma **tabela no DE-PARA** com padrão
+00000; histórico em **maiúsculas e sem acento** porque 100% dos 8.464 históricos reais são assim; **sem ano** na data porque o padrão não tem;
+valor com ponto e 14 inteiros; formato antigo mantido como opção (não removido).
+**Validação:** `node testes/depara-contmatic.test.cjs` (42), `depara-core.test.cjs` (109, os 5 testes do formato antigo passaram a pedir `formato:'delimitado'`) e os
+demais; `node --check` limpo; ida e volta nos 109 arquivos reais; no ambiente de teste (admin simulado) a tela mostrou o formato, o código padrão, a coluna
+Código, a prévia e baixou um arquivo de 330 colunas, 4 linhas, CRLF.
+**Pendências:** importar um arquivo gerado no Contmatic de verdade; confirmar com o contador o significado do código de 5 dígitos; clientes que
+já usavam o DE-PARA precisam preencher os códigos (até lá saem 00000).
+
+### 2026-10-30 · v1.3.0 (branch `feature/restaurar-backup`, publicada na `main`) — Botão "Restaurar do backup" (admin)
+
+**Motivo:** o dono apagou por engano, direto no console do Firebase, o documento de lançamentos de um cliente (coleção `sntx`). O plano
+gratuito não tem lixeira nem recuperação por ponto no tempo, então a única fonte era o arquivo de backup baixado antes (25/10).
+**Feito:** botão **♻️ Restaurar do backup** abaixo do botão de backup (`backup.js`: `admRestaurar`, `bkConfirmarRestaurar`, e a regra pura
+`bkPlanoRestauracao`). Fluxo: escolhe o `.json` → o app lê o banco agora → lista **só** os clientes que têm lançamentos no backup e estão
+**sem lançamentos no banco** (documento ausente ou vazio) → o admin marca quem restaurar → grava só `{ txs }` de cada um.
+**Decisões e porquês:** restaura **apenas lançamentos (`sntx`)**, não as coleções de configuração; **nunca sobrescreve** quem já tem
+lançamento (a lista os ignora e a gravação confere de novo na hora); o que foi lançado depois da data do arquivo **não volta**; nomes
+passam por escape antes de virar `innerHTML`; nada de `confirm()`/`alert()` (regra do sandbox). Lição registrada: apagar no console do
+Firebase não tem volta — **baixe um backup antes de mexer direto no banco** e mantenha backups periódicos.
+**Validação:** `node testes/backup.test.cjs` (20), `seguranca.test.cjs`, `depara-core.test.cjs`; `node --check` limpo. Simulação com o backup
+real de 25/10 e o cliente apagado vazio: restaura 1 cliente (11 lançamentos) e ignora 18. No ambiente de teste com Firebase simulado: lista
+só vazios/ausentes, grava só os marcados, cliente que já tinha lançamento fica intacto, nome com `<` não injeta HTML.
+**Pendências:** teste do dono no Live Server com o backup real; avisar no admin quando o último backup passar de 7 dias (não feito).
 
 ### 2026-10-26 · v1.3.0 (correção, branch `fix/botoes-card-cliente`) — Botões do card de cliente vazavam pela borda (admin)
 
