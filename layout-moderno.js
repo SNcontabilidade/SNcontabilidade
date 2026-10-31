@@ -93,7 +93,7 @@
           <div class="sn-hero__label">Saldo do período <span class="sn-hero__per">${d.periodo}</span><button type="button" class="sn-hero__info" onclick="snHeroLegenda(true)" title="Ver como o saldo é calculado" aria-label="Ver como o saldo é calculado">ⓘ</button></div>
           <div class="sn-hero__val">${fmt(d.saldo)}</div>
           <div class="sn-hero__sub" id="sn-hero-sub">${[
-            fmt(d.liq.rec) + ' de receitas',
+            fmt(d.liq.rec) + ' de receitas' + (d.liq.aporte ? ' (inclui ' + fmt(d.liq.aporte) + ' de aportes)' : ''),
             d.liq.desp ? '− ' + fmt(d.liq.desp) + ' de despesas' : '',
             d.liq.compras ? '− ' + fmt(d.liq.compras) + ' de compras (estoque e bens)' : '',
             d.liq.aplic ? '− ' + fmt(d.liq.aplic) + ' de aplicações' : '',

@@ -15,7 +15,7 @@ const tx = (operation, valor, extra) => Object.assign({ operation, valor }, extr
 eq('despesa e retirada continuam sendo "despesas"', [isNeg('despesa'), isNeg('retirada'), isNeg('estoque'), isNeg('investimento')], [true, true, false, false]);
 eq('saem do saldo: despesa, retirada, estoque, bens, investimento', ['despesa', 'retirada', 'estoque', 'bens', 'investimento'].map(isSaida), [true, true, true, true, true]);
 eq('não saem: receita, aporte, empréstimo, entre bancos, personalizada', ['receita', 'aporte', 'emprestimo', 'entre_bancos', 'op_x'].map(isSaida), [false, false, false, false, false]);
-eq('sinal do fluxo', ['receita', 'despesa', 'retirada', 'estoque', 'bens', 'investimento', 'aporte', 'emprestimo', 'entre_bancos', 'op_x'].map(fluxoSinal), [1, -1, -1, -1, -1, -1, 0, 0, 0, 0]);
+eq('sinal do fluxo', ['receita', 'despesa', 'retirada', 'estoque', 'bens', 'investimento', 'aporte', 'emprestimo', 'entre_bancos', 'op_x'].map(fluxoSinal), [1, -1, -1, -1, -1, -1, 1, 0, 0, 0]);
 
 // ── o caso do cliente: pago sai das receitas; PENDENTE (a pagar) só desconta depois de pago ──
 const caso = [tx('receita', 5987.83), tx('despesa', 29.39), tx('estoque', 8801.4, { status: 'pendente' }), tx('investimento', 1000)];
@@ -35,11 +35,17 @@ eq('compra a prazo pendente NÃO reduz', calcResumo([tx('receita', 1000), tx('es
 eq('bens pagos reduzem', calcResumo([tx('receita', 1000), tx('bens', 250, { status: 'pago' })]).saldo, 750);
 eq('despesa pendente também não reduz até ser paga', calcResumo([tx('receita', 1000), tx('despesa', 200, { status: 'pendente' })]).saldo, 1000);
 eq('aplicação paga reduz o saldo', calcResumo([tx('receita', 1000), tx('investimento', 400)]).saldo, 600);
-eq('aporte e empréstimo não mexem no saldo', calcResumo([tx('receita', 100), tx('aporte', 500), tx('emprestimo', 200)]).saldo, 100);
+eq('aporte SOMA com a receita e entra no saldo', calcResumo([tx('receita', 100), tx('aporte', 500)]).saldo, 600);
+eq('o card Receitas inclui o aporte', calcResumo([tx('receita', 100), tx('aporte', 500)]).rec, 600);
+eq('aporte não aparece em Outros', calcResumo([tx('aporte', 500), tx('estoque', 7)]).outros, 7);
+eq('só aporte, sem receita', calcResumo([tx('aporte', 500)]).saldo, 500);
+eq('aporte pendente não entra até ser baixado', calcResumo([tx('aporte', 500, { status: 'pendente' })]).saldo, 0);
+eq('aporte menos compra paga', calcResumo([tx('aporte', 500), tx('estoque', 200)]).saldo, 300);
+eq('empréstimo continua sem mexer no saldo', calcResumo([tx('receita', 100), tx('emprestimo', 200)]).saldo, 100);
 eq('entre bancos é neutro', calcResumo([tx('receita', 100), tx('entre_bancos', 999)]).saldo, 100);
 eq('operação personalizada é neutra', calcResumo([tx('receita', 100), tx('op_abc', 999)]).saldo, 100);
 eq('retirada reduz', calcResumo([tx('receita', 100), tx('retirada', 30)]).saldo, 70);
-eq('lista vazia', calcResumo([]), { rec: 0, desp: 0, aplic: 0, compras: 0, outros: 0, liq: { rec: 0, desp: 0, compras: 0, aplic: 0 }, saldo: 0 });
+eq('lista vazia', calcResumo([]), { rec: 0, aporte: 0, desp: 0, aplic: 0, compras: 0, outros: 0, liq: { rec: 0, aporte: 0, desp: 0, compras: 0, aplic: 0 }, saldo: 0 });
 eq('saldo pode ficar negativo', calcResumo([tx('estoque', 50)]).saldo, -50);
 
 // ── os componentes do saldo (liq) só têm o que foi pago ──
@@ -48,7 +54,7 @@ eq('liq ignora pendentes; os cards (rec, compras) mostram o total', [L.liq.rec, 
 
 // ── "Outros" mantém o significado de antes, menos a aplicação ──
 const mix = calcResumo([tx('estoque', 10), tx('bens', 20), tx('aporte', 30), tx('emprestimo', 40), tx('entre_bancos', 50), tx('op_x', 60), tx('investimento', 70)]);
-eq('Outros = tudo que não é receita, despesa/retirada nem aplicação', mix.outros, 210);
+eq('Outros = tudo que não é receita/aporte, despesa/retirada nem aplicação', mix.outros, 180);
 eq('aplicação separada', mix.aplic, 70);
 
 // ── a ordem por vencimento (mesmo critério do app: sem vencimento vai para o fim) ──
