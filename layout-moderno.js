@@ -65,10 +65,22 @@
   window.snPainelHero = function (d) {
     const nPend = d.txs.filter(isPend).length, somaPend = d.txs.filter(isPend).reduce((a, t) => a + t.valor, 0);
     // saldo acumulado dia a dia (mesma fórmula do card: só lançamentos pagos; fluxoSinal do app.js — receitas somam; despesas, compras e aplicações subtraem)
+    // O gráfico é uma linha DIA A DIA: dia sem movimento repete o saldo do dia anterior. Antes só havia um ponto por dia com lançamento
+    // pago, e com 0 ou 1 dia pago (tudo a pagar, por ex.) a linha tinha menos de 2 pontos e o gráfico sumia.
     const porDia = {};
-    d.txs.filter((t) => !isPend(t)).forEach((t) => { const s = fluxoSinal(t.operation) * t.valor; porDia[t.date] = (porDia[t.date] || 0) + s; });
-    let acc = 0; const labels = [], data = [];
-    Object.keys(porDia).sort().forEach((k) => { acc += porDia[k]; labels.push(k.slice(8) + '/' + k.slice(5, 7)); data.push(+acc.toFixed(2)); });
+    d.txs.filter((t) => !isPend(t)).forEach((t) => { const dia = (t.pagoEm || t.date || '').slice(0, 10); if (dia) porDia[dia] = (porDia[dia] || 0) + fluxoSinal(t.operation) * t.valor; });
+    const datas = d.txs.map((t) => (t.date || '').slice(0, 10)).concat(Object.keys(porDia)).filter(Boolean).sort();
+    const labels = [], data = [];
+    if (datas.length) {
+      const ms = (s) => Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10)), DIA = 86400000;
+      let ini = ms(datas[0]); const fim = ms(datas[datas.length - 1]);
+      if (fim === ini) ini -= DIA;                                  // um dia só: começa no dia anterior (saldo 0) para a linha ter 2 pontos
+      let acc = 0;
+      for (let t = ini; t <= fim; t += DIA) {
+        const k = new Date(t).toISOString().slice(0, 10); acc += porDia[k] || 0;
+        labels.push(k.slice(8) + '/' + k.slice(5, 7)); data.push(+acc.toFixed(2));
+      }
+    }
     window.__snSpark = { labels, data, positivo: d.saldo >= 0 };
 
     const ico = (u) => `<img src="${u}" alt="" style="width:30px;height:30px;object-fit:contain"/>`;

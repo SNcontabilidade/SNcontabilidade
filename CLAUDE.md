@@ -645,6 +645,10 @@ Regra final: `Receitas − Despesas − Compras (estoque e bens) − Aplicaçõe
 - **Legenda do cartão de Saldo some sozinha** (pedido do dono: "vai chegar uma hora que vai atrapalhar"): aparece ao abrir, some em 7 s com
   transição suave (`.sn-hero__sub.is-oculta`, `LEGENDA_MS` em `layout-moderno.js`) e o botão **ⓘ** ao lado do período mostra de novo
   (`snHeroLegenda(true)`), sumindo outra vez. Cada render do cartão reinicia a contagem.
+- **Gráfico de linha do cartão de Saldo** (`minigrafico`/`snPainelHero`): ficou de fora quando o saldo passou a contar só os pagos — com 0 ou 1 dia pago
+  a série tinha menos de 2 pontos e o gráfico não era desenhado. Agora a linha é **dia a dia** (dia sem movimento repete o saldo anterior), do
+  primeiro ao último lançamento do período (pendentes só alargam o intervalo); lançamento baixado entra no dia da baixa (`pagoEm`); um dia só
+  começa no dia anterior com saldo 0.
 - `sw.js`: `CACHE_NAME` `sn-v7`. `APP_VERSION` `1.4.0`.
 **Decisões e porquês:** o saldo é **regime de caixa** — só conta o que já foi pago/recebido, pela marca `status` (pendente × pago), sem
 olhar a data de vencimento: o dono é quem dá a baixa. Vale para **qualquer** operação pendente (inclusive receita a receber);
