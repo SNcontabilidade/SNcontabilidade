@@ -249,9 +249,11 @@ const calcResumo=list=>{
   return{rec,aporte,emprestimo,desp,aplic,compras,outros,liq,saldo:liq.rec+liq.aporte+liq.emprestimo-liq.desp-liq.compras-liq.aplic};
 };
 // ─── CAMPO DE VALOR (início) ───
-// O cliente digita o valor "como fala": 1234 = mil duzentos e trinta e quatro reais (NÃO centavos). Aceita vírgula ou ponto.
-// Regra do texto: se tem vírgula, ela é o decimal e os pontos são milhares; se só tem ponto, ele é decimal quando é o único
-// e vem seguido de até 2 dígitos ("1.5" = 1,5), e é milhar nos demais casos ("1.500" = 1500, "1.234.567" = 1234567).
+// O cliente digita o valor "como fala": 1234 = mil duzentos e trinta e quatro reais (NÃO centavos).
+// DIGITANDO (valorMascarar): o campo põe o ponto de milhar sozinho (2222 → 2.222), o ponto digitado é só enfeite e é ignorado,
+// e a VÍRGULA é o decimal (até 2 casas): 2.222,22 digitado do jeito que se escreve funciona.
+// LENDO texto pronto/colado (valorNormalizar/parseValorBR): se tem vírgula, ela é o decimal e os pontos são milhares; se só tem ponto,
+// ele é decimal quando é o único e vem seguido de até 2 dígitos ("1234.5" = 1234,5), e é milhar nos demais ("1.500" = 1500).
 const valorNormalizar=s=>{
   s=String(s==null?'':s).replace(/[^\d.,]/g,'');
   if(s.includes(',')){const i=s.lastIndexOf(',');return s.slice(0,i).replace(/[.,]/g,'')+','+s.slice(i+1).replace(/[.,]/g,'').slice(0,2);}
@@ -262,9 +264,26 @@ const valorNormalizar=s=>{
 };
 const parseValorBR=s=>{const n=parseFloat(valorNormalizar(s).replace(',','.'));return isFinite(n)?n:0;};
 const valorParaCampo=v=>{if(typeof v==='number')return v?v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}):'';const n=parseValorBR(v);return n?n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}):'';};
+// texto do campo enquanto digita → texto formatado com milhar automático. colado=true: interpreta o ponto como o valorNormalizar (1234.5 = 1234,5)
+const valorMascarar=(bruto,colado)=>{
+  let s=String(bruto==null?'':bruto).replace(/[^\d.,]/g,'');
+  s=colado?valorNormalizar(s):s.replace(/\./g,'');
+  const temVirg=s.includes(',');
+  let int=temVirg?s.slice(0,s.indexOf(',')):s;const dec=temVirg?s.slice(s.indexOf(',')+1).replace(/,/g,'').slice(0,2):'';
+  int=int.replace(/,/g,'').replace(/^0+(?=\d)/,'');
+  const milhar=int.replace(/\B(?=(\d{3})+(?!\d))/g,'.');
+  return (temVirg&&!int?'0':milhar)+(temVirg?','+dec:'');
+};
 // ─── CAMPO DE VALOR (fim) ───
-// enquanto digita: troca ponto por vírgula quando for decimal e tira letras; ao sair do campo: 1.234,56
-function valorDigitando(el){const v=valorNormalizar(el.value);if(v!==el.value){const p=Math.max(0,(el.selectionStart||0)+v.length-el.value.length);el.value=v;try{el.setSelectionRange(p,p);}catch(e){}}}
+// enquanto digita: formata na hora (milhar automático) e mantém o cursor no mesmo dígito; ao sair do campo: 1.234,56
+function valorDigitando(el,ev){
+  const antes=el.value,pos=el.selectionStart==null?antes.length:el.selectionStart;
+  const sig=(antes.slice(0,pos).match(/[\d,]/g)||[]).length;                 // quantos dígitos/vírgula havia antes do cursor
+  const v=valorMascarar(antes,!!(ev&&/paste|drop/i.test(ev.inputType||'')));
+  if(v===antes)return;
+  el.value=v;let p=0,n=0;while(p<v.length&&n<sig){if(/[\d,]/.test(v[p]))n++;p++;}
+  try{el.setSelectionRange(p,p);}catch(e){}
+}
 function valorSaiu(el){el.value=valorParaCampo(el.value);}
 const fmtCur=v=>'R$ '+Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
 const fmtDate=v=>v?new Date(v+'T12:00:00').toLocaleDateString('pt-BR'):'';
@@ -1356,7 +1375,7 @@ function screenNovo(){
   const descOpts=filteredDescs.map(d=>`<option value="${esc(d)}">${esc(d)}</option>`).join('');
   const formHtml=op?`<div class="card" style="margin-top:8px">
     <div class="row" style="margin-bottom:16px"><span style="font-size:20px">${op.icon}</span><span style="color:${op.color};font-weight:700;font-size:15px">${op.label}</span></div>
-    <div class="field"><label class="label">Valor *</label><div class="inp-icon"><span class="icon-left">R$</span><input id="f-valor" type="text" inputmode="decimal" autocomplete="off" onfocus="this.select()" oninput="valorDigitando(this)" onblur="valorSaiu(this)" class="inp" placeholder="0,00" value="${S.txForm?.valor||''}"/></div></div>
+    <div class="field"><label class="label">Valor *</label><div class="inp-icon"><span class="icon-left">R$</span><input id="f-valor" type="text" inputmode="decimal" autocomplete="off" onfocus="this.select()" oninput="valorDigitando(this,event)" onblur="valorSaiu(this)" class="inp" placeholder="0,00" value="${S.txForm?.valor||''}"/></div></div>
     <div class="field"><label class="label">Descrição *</label>
       <div style="position:relative">
         <input id="f-desc" class="inp" placeholder="Digite para filtrar..." value="${esc(S.txForm?.desc||S.descQuery||'')}" autocomplete="off" readonly
@@ -1567,7 +1586,7 @@ function renderEditOverlay(){
         <span style="font-size:12px;color:var(--muted);margin-left:4px">· ${fmtDate(tx.date)}</span>
       </div>
       <div class="field"><label class="label">Data</label><input id="edit-date" type="date" class="inp" value="${S.editTxForm.date}"/></div>
-      <div class="field"><label class="label">Valor *</label><div class="inp-icon"><span class="icon-left">R$</span><input id="edit-valor" type="text" inputmode="decimal" autocomplete="off" onfocus="this.select()" oninput="valorDigitando(this)" onblur="valorSaiu(this)" class="inp" placeholder="0,00" value="${valorParaCampo(S.editTxForm.valor)}"/></div></div>
+      <div class="field"><label class="label">Valor *</label><div class="inp-icon"><span class="icon-left">R$</span><input id="edit-valor" type="text" inputmode="decimal" autocomplete="off" onfocus="this.select()" oninput="valorDigitando(this,event)" onblur="valorSaiu(this)" class="inp" placeholder="0,00" value="${valorParaCampo(S.editTxForm.valor)}"/></div></div>
       <div class="field"><label class="label">Descrição *</label>
         <div class="sel-wrap" style="margin-bottom:6px"><select id="edit-desc-sel" class="sel" onchange="q('#edit-desc').value=this.value"><option value="">Selecione...</option>${descOpts}</select><span class="sel-arr">▼</span></div>
         <input id="edit-desc" class="inp" placeholder="Ou digite..." value="${esc(S.editTxForm.desc)}"/>
@@ -1602,7 +1621,7 @@ function screenLista(){
   const allBancos=[...new Set(txs.map(t=>t.banco).filter(Boolean))];
   const is='width:100%;background:var(--inp-bg);border:1px solid var(--border);border-radius:7px;padding:8px 10px;color:var(--text);font-size:13px;font-family:inherit;outline:none';
   const allOpsFilter=[...OPS,...S.customOps];
-  const filterPanel=S.filterOpen?`<div class="card" style="margin-bottom:16px"><div style="color:var(--accent);font-weight:700;margin-bottom:12px">← Filtro</div><div class="filter-grid"><div><label class="label">Data Inicial</label><input type="date" style="${is}" value="${f.startDate}" onchange="setFilter('startDate',this.value)"/></div><div><label class="label">Data Final</label><input type="date" style="${is}" value="${f.endDate}" onchange="setFilter('endDate',this.value)"/></div></div><div class="field"><label class="label">Operação</label><select style="${is};appearance:none" onchange="setFilter('operation',this.value)"><option value="">Todas</option>${allOpsFilter.map(o=>`<option value="${o.id}" ${f.operation===o.id?'selected':''}>${o.label}</option>`).join('')}</select></div><div class="field"><label class="label">Situação</label><select style="${is};appearance:none" onchange="setFilter('status',this.value)"><option value="">Todas</option><option value="pendente" ${f.status==='pendente'?'selected':''}>Pendente de baixa</option></select></div><div class="field"><label class="label">Banco</label><select style="${is};appearance:none" onchange="setFilter('banco',this.value)"><option value="">Todos</option>${allBancos.map(b=>`<option value="${esc(b)}" ${f.banco===b?'selected':''}>${esc(b)}</option>`).join('')}</select></div><div class="filter-grid"><div><label class="label">Valor Mín.</label><input type="text" inputmode="decimal" autocomplete="off" onfocus="this.select()" oninput="valorDigitando(this)" onblur="valorSaiu(this)" style="${is}" value="${f.minVal}" placeholder="0" onchange="setFilter('minVal',this.value)"/></div><div><label class="label">Valor Máx.</label><input type="text" inputmode="decimal" autocomplete="off" onfocus="this.select()" oninput="valorDigitando(this)" onblur="valorSaiu(this)" style="${is}" value="${f.maxVal}" placeholder="∞" onchange="setFilter('maxVal',this.value)"/></div></div><div class="field"><label class="label">Busca</label><input style="${is}" value="${esc(f.busca)}" placeholder="Descrição, responsável..." onchange="setFilter('busca',this.value)"/></div><button class="btn btn-ghost btn-full" style="margin-top:4px;font-size:13px" onclick="clearFilters()">Limpar Filtros</button></div>`:'';
+  const filterPanel=S.filterOpen?`<div class="card" style="margin-bottom:16px"><div style="color:var(--accent);font-weight:700;margin-bottom:12px">← Filtro</div><div class="filter-grid"><div><label class="label">Data Inicial</label><input type="date" style="${is}" value="${f.startDate}" onchange="setFilter('startDate',this.value)"/></div><div><label class="label">Data Final</label><input type="date" style="${is}" value="${f.endDate}" onchange="setFilter('endDate',this.value)"/></div></div><div class="field"><label class="label">Operação</label><select style="${is};appearance:none" onchange="setFilter('operation',this.value)"><option value="">Todas</option>${allOpsFilter.map(o=>`<option value="${o.id}" ${f.operation===o.id?'selected':''}>${o.label}</option>`).join('')}</select></div><div class="field"><label class="label">Situação</label><select style="${is};appearance:none" onchange="setFilter('status',this.value)"><option value="">Todas</option><option value="pendente" ${f.status==='pendente'?'selected':''}>Pendente de baixa</option></select></div><div class="field"><label class="label">Banco</label><select style="${is};appearance:none" onchange="setFilter('banco',this.value)"><option value="">Todos</option>${allBancos.map(b=>`<option value="${esc(b)}" ${f.banco===b?'selected':''}>${esc(b)}</option>`).join('')}</select></div><div class="filter-grid"><div><label class="label">Valor Mín.</label><input type="text" inputmode="decimal" autocomplete="off" onfocus="this.select()" oninput="valorDigitando(this,event)" onblur="valorSaiu(this)" style="${is}" value="${f.minVal}" placeholder="0" onchange="setFilter('minVal',this.value)"/></div><div><label class="label">Valor Máx.</label><input type="text" inputmode="decimal" autocomplete="off" onfocus="this.select()" oninput="valorDigitando(this,event)" onblur="valorSaiu(this)" style="${is}" value="${f.maxVal}" placeholder="∞" onchange="setFilter('maxVal',this.value)"/></div></div><div class="field"><label class="label">Busca</label><input style="${is}" value="${esc(f.busca)}" placeholder="Descrição, responsável..." onchange="setFilter('busca',this.value)"/></div><button class="btn btn-ghost btn-full" style="margin-top:4px;font-size:13px" onclick="clearFilters()">Limpar Filtros</button></div>`:'';
   const txCards=filtered.map(t=>{const op=getOp(t.operation);return`<div class="tx-card" style="border-left-color:${op?.color||'var(--accent)'}"><div class="tx-row"><div class="tx-left"><div class="tx-header">${opImg(t.operation,'20px')}<span class="tx-label">${op?.label||t.operation}</span><span class="tx-date">· ${fmtDate(t.date)}</span></div>${t.descricao?`<div class="tx-desc">${esc(t.descricao)}${parcTag(t)}</div>`:''}${t.complemento?`<div class="tx-compl" style="font-size:12.5px;font-weight:600;color:var(--text);margin-top:2px">${esc(t.complemento)}</div>`:''}${t.status==='pendente'?`<div style="font-size:12px;color:#a855f7;font-weight:600;margin-top:2px">⏳ Pagamento pendente · vence ${fmtDate(t.vencimento)}</div>`:''}<div class="tx-meta" style="display:flex;align-items:center;gap:4px">${bankLogo(t.banco,'18px')}${bankLogo(t.banco,'18px').startsWith('<img')?' '+esc(t.banco):''}${t.responsavel?' · '+esc(t.responsavel):''}</div>${t.comprovante?`<div class="tx-comp"><a href="${t.comprovante}" target="_blank" style="color:var(--blue);text-decoration:none;font-size:12px">📎 Ver comprovante</a></div>`:''}</div><div class="tx-right"><span class="tx-val" style="color:${isSaida(t.operation)?'var(--danger)':'var(--success)'}">${isSaida(t.operation)?'−':'+'}${fmtCur(t.valor)}</span><div class="tx-actions">${isPend(t)?`<button class="tx-edit-btn" style="color:#a855f7" onclick="baixaTx('${t.id}')">✅ dar baixa</button>`:''}<button class="tx-edit-btn" onclick="editTx('${t.id}')">✏️ editar</button><button class="tx-del-btn" onclick="deleteTx('${t.id}')">🗑 excluir</button></div></div></div></div>`;}).join('');
   return`<div class="screen"><div class="row-spread" style="margin-bottom:12px"><h3 style="color:var(--text)">Lançamentos (${filtered.length})</h3><div style="display:flex;gap:6px"><button class="btn btn-ghost btn-sm" onclick="openExport()">🖨️ Imprimir / Exportar</button><button class="btn ${hasFilter?'btn-acc':'btn-ghost'} btn-sm" onclick="toggleFilter()">🔍 ${hasFilter?'Filtro ativo':'Filtro'}</button></div></div>${filterPanel}<div class="card summary" style="margin-bottom:12px">${soPend?`<span class="summary-lbl">Total a pagar (pendentes)</span><span class="summary-val" style="color:#a855f7">${fmtCur(totPend)}</span>`:`<span class="summary-lbl">Saldo do período</span><span class="summary-val" style="color:${saldo>=0?'var(--success)':'var(--danger)'}">${saldo<0?'−':''}${fmtCur(Math.abs(saldo))}</span>`}</div>${filtered.length===0?'<div class="empty" style="padding-top:40px">Nenhum lançamento encontrado.</div>':txCards}</div>`;
 }

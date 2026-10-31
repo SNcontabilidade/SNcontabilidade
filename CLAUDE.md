@@ -630,17 +630,18 @@ Confirmadas no código em 24/10/2026. Nenhuma foi alterada por não ter sido ped
 vírgula em alguns). Quer que o cliente **digite normal** (1234 = mil duzentos e trinta e quatro reais) e que, se ele usar **ponto ou vírgula**,
 o campo também entenda.
 **Feito:** os campos de valor do **lançamento novo** (`#f-valor`), da **edição** (`#edit-valor`) e do **filtro Mín./Máx.** da lista viraram texto com
-teclado numérico do celular (`inputmode="decimal"`). Regras, em `valorNormalizar`/`parseValorBR`/`valorParaCampo` (marcadores `CAMPO DE VALOR`):
-número inteiro é **em reais, nunca centavos**; **vírgula** é o decimal (e os pontos viram milhar); **ponto** é decimal quando é o único e vem
-seguido de até 2 dígitos (`1.5` = 1,5), senão é milhar (`1.500` = 1500, `1.234.567` = 1234567); no máximo 2 casas; letras e `R$` são ignorados;
-colar `R$ 1.234,56` funciona. Enquanto digita o ponto decimal vira vírgula; ao sair do campo mostra `1.234,56`; ao entrar, o texto fica
-selecionado (digitar substitui). A edição de lançamento mostra o valor já formatado. `parseFloat` saiu das quatro leituras.
-**Decisões e porquês:** **não** é máscara de centavos (digitar 1234 não vira 12,34) — o dono pediu "digitando normal"; sem separador de milhar
-**durante** a digitação (só ao sair do campo), porque a máscara ao vivo confunde ponto de milhar com ponto decimal quando se apaga um dígito;
-valor negativo não existe (o sinal é descartado; o sentido vem da operação). Único ponto ambíguo: `1.500` digitado com ponto vale 1500, não 1,5
-— valor com 3 casas decimais não existe em reais.
-**Validação:** `node testes/valor.test.cjs` (24 conferências) e os demais; `node --check` limpo. No ambiente de teste (Firebase simulado, arquivos reais):
-digitando de verdade `1234.5` o campo mostra `1234,5` e ao sair `1.234,50`; salvar `1234`, `89,9`, `1.234,56`, `2500.75` e `1.500` gravou 1234, 89,9,
+teclado numérico do celular (`inputmode="decimal"`). **Ao digitar** (`valorMascarar` + `valorDigitando`, marcadores `CAMPO DE VALOR`): número inteiro é **em reais,
+nunca centavos**; o campo põe o **ponto de milhar sozinho** (2222 → 2.222; 4 dígitos já viram mil, e assim por diante); o **ponto digitado é só enfeite
+e é ignorado** (digitar `2.222,22` do jeito que se escreve dá 2.222,22); a **vírgula é o decimal**, até 2 casas; o cursor fica no mesmo dígito mesmo
+inserindo no meio. **Ao colar** (`valorNormalizar`): `1234.5` = 1234,5 (ponto único com até 2 dígitos depois é decimal), `1.500` = 1500 (milhar),
+`R$ 1.234,56` funciona. Ao sair do campo mostra `1.234,56` e ao entrar o texto fica selecionado; a edição abre com o valor formatado.
+`parseFloat` saiu das quatro leituras (`parseValorBR`).
+**Correção no mesmo dia:** a 1ª versão trocava o ponto digitado por vírgula (`2.` virava `2,`) e travava quem digitava `2.222,22`; o dono pediu o
+milhar automático. **Decisões e porquês:** não é máscara de centavos (digitar 1234 não vira 12,34); o ponto **digitado** nunca é decimal (só o colado),
+porque o milhar automático torna o ponto desnecessário e a leitura ao vivo confundia os dois — **risco aceito:** quem digitar `10.50` com ponto decimal
+obtém 1.050 (o campo mostra `1.050` na hora); valor negativo não existe (o sinal é descartado).
+**Validação:** `node testes/valor.test.cjs` (41 conferências) e os demais; `node --check` limpo. No ambiente de teste (Firebase simulado, arquivos reais):
+digitando de verdade (teclado) `2.222,22` o campo mostra `2.222,22`, `1234567` vira `1.234.567` e inserir um 9 no meio mantém o cursor; ao sair `1234.5` colado vira `1.234,50`; salvar `1234`, `89,9`, `1.234,56`, `2500.75` e `1.500` gravou 1234, 89,9,
 1234,56, 2500,75 e 1500; a edição abriu com `1.234,56` e salvou `2.000,10` como 2000,1. `CACHE_NAME` `sn-v8`, `APP_VERSION` `1.4.1`.
 **Pendências:** teste do dono no celular (teclado numérico) e no Live Server antes de publicar.
 
