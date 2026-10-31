@@ -274,7 +274,7 @@ Operações padrão (`OPS`): **Receita, Retirada, Bens, Estoque, Despesa, Aporte
 
 - `valor` é sempre guardado positivo; o sinal é aplicado só na exibição e nas somas.
 - **Sinal de cada operação (desde a v1.4.0), fonte única em `fluxoSinal(op)`:**
-  - **Entra (+):** `receita` e **`aporte`** (`isEntrada`) — o aporte soma com a receita: entra no card Receitas e no saldo.
+  - **Entra (+):** `receita` e **`aporte`** (`isEntrada`). O aporte **soma no card Outros** (não no card Receitas) **e reflete no saldo**.
   - **Sai (−):** `despesa`, `retirada` (`isNeg`), **compras** `estoque` e `bens` (`OPS_COMPRA`) e `investimento` (**aplicação**, `OP_APLICACAO`).
   - **Neutras (0):** `emprestimo`, `entre_bancos` e as personalizadas — não mexem no saldo (empréstimo ficou de fora por não ter sido pedido).
   - `isNeg` continua significando só despesa/retirada (é o que define o card **Despesas**). `isSaida(op)` = `isNeg`, compra ou
@@ -290,11 +290,11 @@ Excel, dashboard, ranking, cartão e detalhe do cliente no admin, cartão de Sal
 
 | Indicador | Regra |
 |---|---|
-| **Receitas** | soma de `receita` **+ `aporte`** (`isEntrada`); `calcResumo` devolve também `aporte` à parte, que o cartão de Saldo cita ("inclui R$ X de aportes") |
+| **Receitas** | soma de `operation==='receita'` (o aporte **não** entra aqui); `calcResumo` devolve `aporte` à parte, que o cartão de Saldo cita ("+ R$ X de aportes") |
 | **Despesas** | soma das `isNeg` (**despesa + retirada**) |
 | **Aplicações** (card próprio, `#14b8a6`) | soma de `investimento` |
-| **Outros** | soma de tudo que não é receita/aporte, despesa/retirada **nem investimento** (estoque, bens, empréstimo, entre bancos, personalizadas) |
-| **Saldo** | `Receitas (receita + aporte) − Despesas − Compras (estoque e bens) − Aplicações`, **só dos lançamentos já pagos** (pendentes ficam de fora até a baixa). `calcResumo` devolve também `liq` = os componentes pagos, que o cartão de Saldo lista |
+| **Outros** | soma de tudo que não é `receita`, despesa/retirada **nem investimento** (estoque, bens, **aporte**, empréstimo, entre bancos, personalizadas). Só estoque/bens/aporte mexem no saldo; o resto de "Outros" não |
+| **Saldo** | `Receitas + Aportes − Despesas − Compras (estoque e bens) − Aplicações`, **só dos lançamentos já pagos** (pendentes ficam de fora até a baixa). `calcResumo` devolve também `liq` = os componentes pagos, que o cartão de Saldo lista |
 | **Total Lançamentos** | quantidade de registros — **cada parcela / cada mês contínuo conta como um** |
 
 Os cards Receitas/Despesas/Outros/Aplicações mostram o **total do período, com pendentes**; só o **Saldo** (e a composição no cartão) usa
@@ -649,8 +649,9 @@ Regra final: `Receitas − Despesas − Compras (estoque e bens) − Aplicaçõe
   a série tinha menos de 2 pontos e o gráfico não era desenhado. Agora a linha é **dia a dia** (dia sem movimento repete o saldo anterior), do
   primeiro ao último lançamento do período (pendentes só alargam o intervalo); lançamento baixado entra no dia da baixa (`pagoEm`); um dia só
   começa no dia anterior com saldo 0.
-- **Aporte soma com a receita** (pedido do dono, depois dos testes): `isEntrada` (= receita ou aporte) alimenta `fluxoSinal`, o card Receitas, o saldo, os
-  gráficos de barras receita × despesa e o cartão de cada cliente no admin; some de "Outros". Empréstimo continua neutro — **a confirmar** se deve somar também.
+- **Aporte** (pedido do dono, depois dos testes): entra no **saldo** como entrada e fica somado no card **Outros** — **não** no card Receitas
+  (1ª tentativa o somou à receita; o dono corrigiu). O cartão de Saldo mostra "X de receitas + Y de aportes". Os gráficos de barras
+  receita × despesa continuam só com receita. Empréstimo continua neutro — **a confirmar** se deve somar também.
 - `sw.js`: `CACHE_NAME` `sn-v7`. `APP_VERSION` `1.4.0`.
 **Decisões e porquês:** o saldo é **regime de caixa** — só conta o que já foi pago/recebido, pela marca `status` (pendente × pago), sem
 olhar a data de vencimento: o dono é quem dá a baixa. Vale para **qualquer** operação pendente (inclusive receita a receber);
