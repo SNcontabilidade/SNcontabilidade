@@ -70,6 +70,7 @@ index.html ainda registra o service worker (sw.js) e faz o recarregamento autom�
 | `testes/exemplo-depara.xlsx` | Planilha de exemplo **propositalmente bagunçada** (dados fictícios) para testar o DE-PARA |
 | `backup.js` | **Backup do banco (só admin)**: botão "💾 Backup do banco" na barra lateral que baixa um `.json` com todas as coleções (`BK_COLECOES`). Carregado só pelo `admin.html`; no `app.js` há **1 encaixe** (`bkBotaoHTML` no rodapé da barra). Prefixo `bk*` |
 | `testes/backup.test.cjs` | Testes do backup (`node testes/backup.test.cjs`) |
+| `testes/saldo.test.cjs` | Testes da **fórmula única do saldo** (`node testes/saldo.test.cjs`): extrai do `app.js` o trecho de `isNeg` até `calcResumo`, então nunca diverge do código real. Cobre o caso do cliente, cada operação e a ordem por vencimento |
 | `acesso.js` | **Acesso do cliente (v1.2.0)** — carregado por `index.html` **e** `admin.html`, antes do `app.js`: regras de usuário→conta (`sg*`: hash, e-mail interno, senha do Authentication, `sgPerfil`), login e carga **só dos dados do próprio cliente** (`ac*`: `acEntrar`, `acCarregarCliente`, `acIniciarCliente`), junção do modelo antigo com o novo para o admin (`acMesclarPerfil`, `acUniaoMensagens`, `acMesclarNovoAdmin`) e espelho das configurações (`acEspelharConfig`) |
 | `layout-moderno.css` | **Tema moderno (v1.3.0)**, carregado por `index.html` e `admin.html` **depois** do `style.css` e sobrescrevendo por cima: variáveis de cor/raio/sombra, tipografia Inter, cartões, sidebar, cabeçalho, botões, formulários, login e o **cartão de Saldo** do painel (`.sn-hero`, `.sn-minis`). Só aparência: nenhuma regra de negócio. Tema claro em `body.light` |
 | `layout-moderno.js` | Carregado **depois** do `app.js`: (1) troca só a URL de **entrega** dos ícones do Cloudinary (tamanho, formato, cantos) — nenhum arquivo original muda; (2) `snPainelHero`, o cartão de Saldo que o `screenPainel` chama; (3) envolve `buildClientCharts`/`buildAdminCharts` e restiliza os gráficos (barras com gradiente, rosca com total no centro). Cada bloco é protegido: se falhar, o app segue com o visual simples |
@@ -91,7 +92,7 @@ index.html ainda registra o service worker (sw.js) e faz o recarregamento autom�
 | Constantes | `APP_VERSION`, logos, `SPREADSHEET_ID`/`SHEETS_URL`, `CFG` (tamanhos de ícone), `BANK_LOGOS`, `OP_ICONS`, `NAV_ICONS`, `OPS`, `DEFAULT_BANKS`, `DEFAULT_DESCRIPTIONS`, `OP_DESCRIPTIONS_DEFAULT`, `PC` (paleta de gráficos) |
 | `S` | Estado global |
 | Firestore | `fsGet/fsSet` (coleção `sn`), `fsGetTx/fsSetTx` (coleção `sntx`), `loadAll`, `save*` |
-| Helpers | `uid`, `todayStr`, `localToday`, `isNeg`, `fmtCur`, `fmtDate`, `addMonths`, `splitParcelas`, `isPend`, `dueTxs`, `parcTag`, `pendKpi`, `esc`, `getOp`, `getClient`, `getClientTx`, `q`, `allTx` |
+| Helpers | `uid`, `todayStr`, `localToday`, `isNeg`, `isSaida`, `fluxoSinal`, `calcResumo`, `fmtCur`, `fmtDate`, `addMonths`, `splitParcelas`, `isPend`, `dueTxs`, `parcTag`, `pendKpi`, `esc`, `getOp`, `getClient`, `getClientTx`, `q`, `allTx` |
 | Tema | `applyTheme`/`toggleTheme` (`localStorage 'sn:theme'`) |
 | `render()` | Roteia por `S.page`: `login`, `changepwd`, `admin`, `client` |
 | Login | `pageLogin`, `pageLoginAdmin`, `doLogin`, `doGoogleLogin`, `doChangePwd`, `doLogout` |
@@ -169,7 +170,7 @@ Documento separado por cliente para fugir do limite de 1 MB. **Cada gravação r
 | `id` | string | `uid()` |
 | `date` | `AAAA-MM-DD` | Data do lançamento. **Nos contínuos = a data de cada mês** |
 | `operation` | string | id da operação (`receita`, `despesa`… ou `op_xxx`) |
-| `valor` | number | **Sempre positivo.** O sinal vem de `isNeg(operation)` |
+| `valor` | number | **Sempre positivo.** O sinal vem de `fluxoSinal(operation)` (regra 8.1) |
 | `descricao`, `banco`, `complemento`, `responsavel` | string | `banco` pode ser `''` enquanto pendente |
 | `comprovante` | string | URL Cloudinary (opcional) |
 | `pagamento` | `'vista'` \| `'prazo'` \| `'continuo'` | Ausente em lançamento antigo (= à vista) |
@@ -229,8 +230,8 @@ Abas (`S.clientTab`): **Painel**, **Lançamento** (`novo`), **Histórico**, **Me
 - **Layout:** no **Painel** usa a sidebar (estilo desktop); nas demais abas, topbar + `bottom-nav` (mobile).
 - **Faixa de aviso de vencimento** (`dueAlertHTML`) aparece no topo do Painel e das demais abas (exceto Mensagens)
   quando há pendente vencendo hoje ou já vencido — ver regra 8.6.
-- **Painel** (`screenPainel`): seletor de período (meses, multi-seleção), 6 cards (Total Lançamentos, Receitas,
-  Despesas, Outros, Saldo, **Pendente**), gráfico de barras diário (receita × despesa), rosca por operação,
+- **Painel** (`screenPainel`): seletor de período (meses, multi-seleção), cartão de **Saldo** (com a composição na
+  linha de baixo) e cards (Receitas, Despesas, Outros, **Aplicações**, Lançamentos, **Pendente**), gráfico de barras diário (receita × despesa), rosca por operação,
   "Últimos Lançamentos" (8) e "Por Operação". Botão **Imprimir / Exportar**.
 - **Lançamento** (`screenNovo`): data, grade de operações, formulário (regras na seção 8).
 - **Histórico** (`screenHistorico`): um mês por vez (padrão = mês atual), 4 cards, "Por tipo de operação" e a lista de
@@ -242,8 +243,8 @@ Abas (`S.clientTab`): **Painel**, **Lançamento** (`novo`), **Histórico**, **Me
 Menu: **Dashboard**, **Clientes**, **Bancos**, **Descrições**, **Operações**, **Mensagens**, **DE-PARA** + botões **Sheets**
 (abre a planilha) e **Sincronizar**.
 
-- **Dashboard** (`admDashboard`): 7 cards consolidados (clientes cadastrados, com lançamentos, total de lançamentos,
-  total receitas, total despesas, saldo consolidado, **Pendente**), gráficos, últimos lançamentos de todos e ranking
+- **Dashboard** (`admDashboard`): 8 cards consolidados (clientes cadastrados, com lançamentos, total de lançamentos,
+  total receitas, total despesas, **total aplicações**, saldo consolidado, **Pendente**), gráficos, últimos lançamentos de todos e ranking
   dos 5 clientes com mais lançamentos.
 - **Clientes** (`admClients`): filtro por letra inicial, cartões com lançamentos/saldo/receitas/último movimento,
   **versão do app** de cada cliente (✓ verde se igual à atual, ⚠️ laranja se desatualizada), data do último acesso,
@@ -274,20 +275,30 @@ Operações padrão (`OPS`): **Receita, Retirada, Bens, Estoque, Despesa, Aporte
 - **`isNeg(op)` = `despesa` ou `retirada`** → saem do saldo (sinal −). **Todas as outras** (inclusive `entre_bancos`,
   `estoque`, `bens`, `aporte`, `investimento`, `emprestimo` e as personalizadas) contam como positivo.
 - `valor` é sempre guardado positivo; o sinal é aplicado só na exibição e nas somas.
+- **Sinal de cada operação (desde a v1.4.0), fonte única em `fluxoSinal(op)`:**
+  - **Entram (+):** `receita`, `aporte`, `emprestimo`.
+  - **Saem (−):** `despesa`, `retirada` (`isNeg`), `estoque`, `bens` (**compras**, `OPS_COMPRA`) e `investimento` (**aplicação**, `OP_APLICACAO`).
+  - **Neutras (0):** `entre_bancos` e as operações personalizadas — não mexem no saldo.
+  - `isNeg` continua existindo e continua significando só despesa/retirada (é o que define o card **Despesas**).
+    `isSaida(op)` = qualquer operação que sai do saldo (usada para sinal e cor na exibição).
 
-### 8.2 Cálculo dos cards (atenção: existem duas fórmulas de Saldo)
+### 8.2 Cálculo dos cards (uma fórmula só de Saldo, em `calcResumo`)
+
+Toda tela que mostra saldo chama `calcResumo(lista)` (painel e histórico do cliente, lista de lançamentos, relatório PDF e
+Excel, dashboard, ranking, cartão e detalhe do cliente no admin, cartão de Saldo do layout moderno).
 
 | Indicador | Regra |
 |---|---|
 | **Receitas** | soma de `operation==='receita'` |
 | **Despesas** | soma das `isNeg` (**despesa + retirada**) |
-| **Outros** | soma de tudo que não é `receita` nem `isNeg` |
-| **Saldo — Painel e Histórico do cliente, e relatório em PDF** | `Receitas − Despesas` (**ignora "Outros"**) |
-| **Saldo — lista, cartão do cliente no admin, detalhe do cliente e dashboard do admin** | soma assinada: `isNeg` subtrai, **todo o resto soma** (inclui "Outros") |
+| **Aplicações** (card próprio, `#14b8a6`) | soma de `investimento` |
+| **Outros** | soma de tudo que não é `receita`, despesa/retirada **nem investimento** (estoque, bens, aporte, empréstimo, entre bancos, personalizadas) |
+| **Saldo** | `Receitas + Aportes + Empréstimos − Despesas − Compras (estoque e bens) − Aplicações` |
 | **Total Lançamentos** | quantidade de registros — **cada parcela / cada mês contínuo conta como um** |
 
-As duas fórmulas de Saldo **dão números diferentes** quando há Estoque/Bens/Aporte/etc. É o comportamento atual, não
-um acidente de documentação — ver pendências.
+"Outros" é só informativo (uma visão do que não é receita nem despesa); o **Saldo não é calculado a partir dele**. Os
+lançamentos **pendentes entram no saldo** (a dívida existe desde o lançamento); o card Pendente mostra quanto ainda não foi pago.
+O cartão de Saldo lista a composição (receitas, aportes/empréstimos, despesas, compras, aplicações).
 
 **Pendente (card roxo `#a855f7`)** = soma de `valor` dos lançamentos com `status==='pendente'` (`pendKpi`), com a
 quantidade entre parênteses. **Não é um valor a mais**: o pendente **já está** contado em Receitas/Despesas/Outros/Saldo
@@ -378,8 +389,9 @@ Botão **🖨️ Imprimir / Exportar** → janela com duas opções:
   totais) e dispara a impressão do navegador (o "salvar como PDF" é do próprio navegador). Exige *popup* liberado.
 - **Excel (.xlsx)** (`exportExcel`): planilha com topo (cliente, CNPJ, geração), colunas **Data, Operação,
   Descrição (com "(n/N)"), Banco, Complemento, Responsável, Valor (R$), Situação (Pago/Pendente), Vencimento**,
-  ordenada por data; **valor com sinal** (negativo em despesa/retirada, formato `#,##0.00;[Red]-#,##0.00`) e rodapé
-  com **Receitas, Despesas, Saldo** (`Receitas − Despesas`) e **Pendente (a prazo)**. Nome:
+  ordenada por data; **valor com sinal** (negativo em tudo que sai do saldo — despesa, retirada, estoque, bens e
+  investimento —, formato `#,##0.00;[Red]-#,##0.00`) e rodapé com **Receitas, Despesas, Compras, Aplicações, Aportes e
+  empréstimos, Saldo** (fórmula da 8.2) e **Pendente (a prazo)**. Nome:
   `Relatorio_<CLIENTE>_<AAAA-MM-DD>.xlsx`. A biblioteca é baixada na hora; **sem internet cai para `.csv`**
   (`;`, vírgula decimal, BOM UTF-8).
 - Os dois usam o mesmo recorte (`relatorioTxs()` = `S.clientPeriod`, hoje vazio ⇒ **todos** os lançamentos).
@@ -571,8 +583,9 @@ Voltar atrás: `git revert <commit>` + push (e nova troca de `CACHE_NAME`).
 
 Confirmadas no código em 24/10/2026. Nenhuma foi alterada por não ter sido pedida.
 
-1. **Duas fórmulas de Saldo** (regra 8.2): Painel/Histórico do cliente ignoram "Outros"; lista e telas do admin os
-   somam. O mesmo cliente mostra saldos diferentes em telas diferentes.
+1. ~~Duas fórmulas de Saldo~~ — **resolvida na v1.4.0**: fórmula única em `calcResumo` (regra 8.2). **Em aberto, a
+   confirmar com o dono:** aporte e empréstimo **somam** ao saldo e entre bancos/operações personalizadas são **neutras**
+   (padrões assumidos, não pedidos); pendentes continuam contando no saldo; não há linha "disponível × investido" separada.
 2. **Gráficos e relatório do Painel ignoram o filtro de meses** (usam `clientPeriod`, sempre vazio) — mostram tudo,
    enquanto os cards respeitam a seleção.
 3. **Segurança de acesso e de dados — em revisão.** O plano de correção (etapas, riscos e compatibilidade com o app dos
@@ -609,6 +622,35 @@ Confirmadas no código em 24/10/2026. Nenhuma foi alterada por não ter sido ped
 
 > Uma entrada por mudança, **a mais recente no topo**. Formato: data · versão — pedido, feito, decisões e porquês,
 > validação, pendências.
+
+### 2026-10-30 · v1.4.0 (branch `feature/saldo-aplicacoes`, **não** publicada) — Saldo único, card Aplicações e lista com complemento
+
+**Pedido (duas ponderações do dono):** (1) na lista de lançamentos mostrar o **complemento** (fornecedor) e, **só no filtro Pendente**,
+ordenar por **vencimento** (o que vence primeiro no topo); (2) o saldo ignorava compras: investimento e compra de mercadoria
+(estoque) têm de **subtrair** do saldo, a aplicação **não** pode somar em "Outros" e ganha **card próprio "Aplicações"**.
+**Feito:**
+- `calcResumo(lista)` + `fluxoSinal`/`isSaida`/`OPS_COMPRA`/`OPS_ENTRADA`/`OP_APLICACAO` no `app.js`: **uma fórmula só** de saldo
+  (regras 8.1 e 8.2), usada em painel, histórico, lista, PDF, Excel, dashboard, ranking, cartão e detalhe do cliente e no cartão de
+  Saldo do `layout-moderno.js`. Acabou a divergência entre telas (antiga pendência 1).
+- Card **Aplicações** (`#14b8a6`) no painel, histórico, detalhe do cliente e dashboard do admin; "Outros" deixa de somar investimento;
+  o cartão de Saldo mostra a composição (receitas, aportes/empréstimos, despesas, compras, aplicações). `layout-moderno.css`: a faixa
+  de mini cards passou a `auto-fit` para caber o card novo.
+- Lista: linha do **complemento** em cada lançamento; filtro Pendente ordena por vencimento crescente (sem vencimento no fim, empate
+  pela data do lançamento); saldo do resumo da lista vem de `calcResumo`; nome do banco só aparece em texto quando não há logo
+  (corrige o nome duplicado); `bankLogo` passou a escapar nome/alt. Sinal e cor de exibição usam `isSaida` (compras e aplicações
+  aparecem com "−").
+- `sw.js`: `CACHE_NAME` `sn-v7`. `APP_VERSION` `1.4.0`.
+**Decisões e porquês:** compra à vista **ou a prazo** reduz o saldo no ato do lançamento (a dívida já existe — decisão antiga mantida);
+**aporte e empréstimo somam** e **entre bancos/personalizadas são neutras** — padrões assumidos por falta de pedido, a confirmar;
+`isNeg` não mudou de significado (continua sendo o card Despesas), para não mexer em quem já dependia dele; o dado salvo não muda
+(`valor` segue positivo), só a leitura. **Efeito esperado:** cliente com estoque/bens lançados vai ver o saldo **cair** na primeira
+abertura da nova versão.
+**Validação:** `node testes/saldo.test.cjs` (25), `seguranca.test.cjs`, `backup.test.cjs`, `depara-core.test.cjs`; `node --check` limpo.
+No ambiente de teste local (Firebase simulado, arquivos reais): cenário do dono (receita 5.987,83, despesa 29,39, quatro compras de
+estoque pendentes, investimento 1.000,00) → saldo −3.840,99, Outros 8.799,43 sem a aplicação, Aplicações 1.000,00, lista Pendente
+ordenada 30/10, 01/11, 02/11, 10/11 com complemento; admin (dashboard e detalhe) com o mesmo cálculo; sem erro no console.
+**Pendências:** teste do dono no Live Server (cliente e admin, PDF/Excel) antes de publicar; confirmar os padrões de aporte,
+empréstimo e entre bancos; avaliar a linha "disponível / investido" que o dono citou como exemplo.
 
 ### 2026-10-26 · v1.3.0 (correção, branch `fix/botoes-card-cliente`) — Botões do card de cliente vazavam pela borda (admin)
 

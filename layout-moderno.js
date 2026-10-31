@@ -55,9 +55,9 @@
   // Cartão de Saldo + cards menores (o app.js chama isto no lugar da grade de 6 cards)
   window.snPainelHero = function (d) {
     const nPend = d.txs.filter(isPend).length, somaPend = d.txs.filter(isPend).reduce((a, t) => a + t.valor, 0);
-    // saldo acumulado dia a dia (mesma fórmula do card: receitas − despesas)
+    // saldo acumulado dia a dia (mesma fórmula do card: fluxoSinal do app.js — entradas somam; despesas, compras e aplicações subtraem)
     const porDia = {};
-    d.txs.forEach((t) => { const s = t.operation === 'receita' ? t.valor : (isNeg(t.operation) ? -t.valor : 0); porDia[t.date] = (porDia[t.date] || 0) + s; });
+    d.txs.forEach((t) => { const s = fluxoSinal(t.operation) * t.valor; porDia[t.date] = (porDia[t.date] || 0) + s; });
     let acc = 0; const labels = [], data = [];
     Object.keys(porDia).sort().forEach((k) => { acc += porDia[k]; labels.push(k.slice(8) + '/' + k.slice(5, 7)); data.push(+acc.toFixed(2)); });
     window.__snSpark = { labels, data, positivo: d.saldo >= 0 };
@@ -70,7 +70,13 @@
         <div class="sn-hero__main">
           <div class="sn-hero__label">Saldo do período <span class="sn-hero__per">${d.periodo}</span></div>
           <div class="sn-hero__val">${fmt(d.saldo)}</div>
-          <div class="sn-hero__sub">${fmt(d.rec)} de receitas − ${fmt(d.desp)} de despesas</div>
+          <div class="sn-hero__sub">${[
+            fmt(d.rec) + ' de receitas',
+            d.entradas ? '+ ' + fmt(d.entradas) + ' de aportes e empréstimos' : '',
+            '− ' + fmt(d.desp) + ' de despesas',
+            d.compras ? '− ' + fmt(d.compras) + ' de compras (estoque e bens)' : '',
+            d.aplic ? '− ' + fmt(d.aplic) + ' de aplicações' : '',
+          ].filter(Boolean).join(' ')}</div>
           ${nPend ? `<button class="sn-hero__pend" onclick="showPendentes()">⏳ ${fmt(somaPend)} a pagar · ${nPend} lançamento${nPend > 1 ? 's' : ''} pendente${nPend > 1 ? 's' : ''} <span>→</span></button>` : ''}
         </div>
         <div class="sn-hero__spark"><canvas id="sn-spark" aria-label="Evolução do saldo no período"></canvas></div>
@@ -79,6 +85,7 @@
         ${mini('var(--success)', opImg('receita', '30px'), fmt(d.rec), 'Receitas')}
         ${mini('var(--danger)', opImg('despesa', '30px'), fmt(d.desp), 'Despesas')}
         ${mini('var(--accent)', outrosIco, fmt(d.outros), 'Outros')}
+        ${mini('#14b8a6', opImg('investimento', '30px'), fmt(d.aplic), 'Aplicações')}
         ${mini('var(--blue)', opImg('total_lanc', '30px'), d.txs.length, 'Lançamentos')}
       </div>`;
   };
