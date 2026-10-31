@@ -646,6 +646,12 @@ digitando de verdade (teclado) `2.222,22` o campo mostra `2.222,22`, `1234567` v
 **Também nesta versão — complemento (fornecedor) visível para identificar de quem é o lançamento:** além da lista de lançamentos (já tinha,
 v1.4.0), agora aparece no **Histórico** (linha em negrito abaixo da descrição, classe `tx-compl`) e em **Últimos Lançamentos** do painel (cliente e
 admin), sempre com `esc()`. A lista com o filtro Pendente já mostrava.
+**Também nesta versão — cards do painel como filtro** (pedido do dono): clicar em **Receitas, Despesas, Outros ou Aplicações** filtra **Últimos
+Lançamentos** pelo que o card soma (mesma regra do card: Despesas = despesa + retirada; Outros = o que não é receita, despesa/retirada nem investimento);
+clicar de novo, em **Lançamentos** ou em "✕ limpar filtro" volta ao normal. Sem filtro a lista mostra os 8 mais recentes; **com filtro mostra todos do
+tipo no período** (rola a partir de 460px). O card ativo ganha um anel na cor dele; o filtro (`S.painelCard`) sobrevive a `render()` e respeita os meses
+selecionados. A troca é parcial (`setPainelCard` só refaz título, lista e cards, sem redesenhar gráficos). Código: `PAINEL_FILTROS`, `painelRecentHTML`,
+`setPainelCard` (`app.js`) e o `mini()` de `snPainelHero` (`layout-moderno.js`, `data-card`, teclado Enter/Espaço). Só no painel do **cliente**.
 **Pendências:** teste do dono no celular (teclado numérico) e no Live Server antes de publicar.
 
 ### 2026-10-30 · v1.4.0 (branch `feature/saldo-aplicacoes`, **não** publicada) — Saldo único, card Aplicações e lista com complemento

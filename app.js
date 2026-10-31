@@ -1317,6 +1317,25 @@ function renderPeriodSlicer(months){
   </div>`;
 }
 
+// ─── CARDS DO PAINEL COMO FILTRO ───
+// Clicar num card (Receitas, Despesas, Outros, Aplicações) filtra "Últimos Lançamentos" por aquele tipo; clicar de novo, ou em Lançamentos, limpa.
+const PAINEL_FILTROS={receita:t=>t.operation==='receita',despesa:t=>isNeg(t.operation),outros:t=>t.operation!=='receita'&&!isNeg(t.operation)&&t.operation!==OP_APLICACAO,aplicacao:t=>t.operation===OP_APLICACAO};
+const PAINEL_ROTULOS={receita:'Receitas',despesa:'Despesas',outros:'Outros',aplicacao:'Aplicações'};
+function painelRecentHTML(txs){
+  const f=PAINEL_FILTROS[S.painelCard];
+  const ord=(f?txs.filter(f):txs).slice().sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
+  const lista=f?ord:ord.slice(0,8);   // sem filtro: os 8 mais recentes; com filtro: todos daquele tipo no período
+  return lista.map(t=>{const op=getOp(t.operation);const neg=isSaida(t.operation);return`<div class="recent-item"><span class="recent-icon">${opImg(t.operation,CFG.OP_BADGE_SIZE)}</span><div class="recent-info"><div class="recent-name">${op?.label||t.operation}</div><div class="recent-meta">${esc(t.descricao||'sem descrição')}${parcTag(t)}${t.complemento?` · <strong style="color:var(--text)">${esc(t.complemento)}</strong>`:''} ·${fmtDate(t.date)}${t.status==='pendente'?` · <span style="color:#a855f7;font-weight:600">⏳ pendente · vence ${fmtDate(t.vencimento)}</span>`:''}</div></div><span class="recent-val" style="color:${neg?'var(--danger)':'var(--success)'}">${neg?'−':'+'}${fmtCur(t.valor)}</span></div>`;}).join('')||`<div style="color:var(--muted);font-size:13px;padding:12px 0">${f?'Nenhum lançamento deste tipo neste período.':'Nenhum lançamento neste período.'}</div>`;
+}
+function painelTituloHTML(){const r=PAINEL_ROTULOS[S.painelCard];return 'Últimos Lançamentos'+(r?` · <span style="color:var(--accent)">${r}</span> <button type="button" class="btn btn-ghost btn-sm" style="margin-left:8px;padding:3px 10px;font-size:11px" onclick="setPainelCard(null)">✕ limpar filtro</button>`:'');}
+function painelPeriodoTxs(){const all=getClientTx();if(!S.selectedMonths.length)return all;return all.filter(t=>{const d=new Date((t.date||todayStr())+'T12:00:00');return S.selectedMonths.includes(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);});}
+function setPainelCard(k){
+  S.painelCard=(k==null||k==='todos'||S.painelCard===k)?null:k;
+  const ti=document.getElementById('painel-recent-title'),li=document.getElementById('painel-recent-list');
+  if(ti)ti.innerHTML=painelTituloHTML();
+  if(li){li.innerHTML=painelRecentHTML(painelPeriodoTxs());li.classList.toggle('recent-list--filtrado',!!S.painelCard);}
+  document.querySelectorAll('.sn-mini[data-card]').forEach(el=>el.classList.toggle('is-ativo',el.dataset.card===S.painelCard));
+}
 function screenPainel(){
   const client=getClient();const allTxs=getClientTx();
   const monthSet=new Set();allTxs.forEach(t=>{const d=new Date((t.date||todayStr())+'T12:00:00');monthSet.add(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);});
@@ -1339,7 +1358,7 @@ function screenPainel(){
   const kpis=[{img:`<img src="https://res.cloudinary.com/dk10wezy9/image/upload/v1777141277/Total-lancamentos_raxtr6.png" style="width:${CFG.KPI_ICON_SIZE};height:${CFG.KPI_ICON_SIZE};object-fit:contain"/>`,val:txs.length,lbl:'Total Lançamentos',color:'#3b82f6'},{img:opImg('receita',CFG.KPI_ICON_SIZE),val:fmtCur(rec),lbl:'Receitas',color:'#10b981'},{img:opImg('despesa',CFG.KPI_ICON_SIZE),val:fmtCur(desp),lbl:'Despesas',color:'#ef4444'},{img:`<img src="https://res.cloudinary.com/dk10wezy9/image/upload/v1777141665/Outros_aebx7k.png" style="width:${CFG.KPI_ICON_SIZE};height:${CFG.KPI_ICON_SIZE};object-fit:contain"/>`,val:fmtCur(outros),lbl:'Outros',color:'#C8961C'},{img:opImg('investimento',CFG.KPI_ICON_SIZE),val:fmtCur(aplic),lbl:'Aplicações',color:'#14b8a6'},{img:`<img src="https://res.cloudinary.com/dk10wezy9/image/upload/v1777141052/Saldo_vfedtd.png" style="width:${CFG.KPI_ICON_SIZE};height:${CFG.KPI_ICON_SIZE};object-fit:contain"/>`,val:fmtCur(saldo),lbl:'Saldo',color:saldo>=0?'#10b981':'#ef4444'},pendKpi(txs)].map(k=>`<div class="kpi-card" style="border-top-color:${k.color}"><div class="kpi-icon">${k.img}</div><div class="kpi-val" style="color:${k.color}">${k.val}</div><div class="kpi-lbl">${k.lbl}</div></div>`).join('');
   const opG={};txs.forEach(t=>{if(!opG[t.operation])opG[t.operation]={count:0,total:0};opG[t.operation].count++;opG[t.operation].total+=t.valor;});
   const opRows=Object.entries(opG).sort((a,b)=>b[1].total-a[1].total).map(([id,d])=>{const op=getOp(id);const neg=isSaida(id);return`<tr><td><span class="badge" style="background:${neg?'#ef444420':'#10b98120'};color:${neg?'#ef4444':'#10b981'}">${op?.label||id}</span></td><td>${d.count}</td><td style="color:${neg?'var(--danger)':'var(--success)'};font-weight:600">${fmtCur(d.total)}</td></tr>`;}).join('')||`<tr><td colspan="3" style="color:var(--muted);padding:16px">Sem dados.</td></tr>`;
-  const recentRows=txs.slice().sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||'')).slice(0,8).map(t=>{const op=getOp(t.operation);const neg=isSaida(t.operation);return`<div class="recent-item"><span class="recent-icon">${opImg(t.operation,CFG.OP_BADGE_SIZE)}</span><div class="recent-info"><div class="recent-name">${op?.label||t.operation}</div><div class="recent-meta">${esc(t.descricao||'sem descrição')}${parcTag(t)}${t.complemento?` · <strong style="color:var(--text)">${esc(t.complemento)}</strong>`:''} ·${fmtDate(t.date)}${t.status==='pendente'?` · <span style="color:#a855f7;font-weight:600">⏳ pendente · vence ${fmtDate(t.vencimento)}</span>`:''}</div></div><span class="recent-val" style="color:${neg?'var(--danger)':'var(--success)'}">${neg?'−':'+'}${fmtCur(t.valor)}</span></div>`;}).join('')||`<div style="color:var(--muted);font-size:13px;padding:12px 0">Nenhum lançamento neste período.</div>`;
+  const recentRows=painelRecentHTML(txs);
   return`
     ${dueAlertHTML()}
     ${(()=>{const cid=S.session?.clientId;const um=unreadMsgs(cid);return um.length?`<div style="background:rgba(200,150,28,.12);border:1px solid var(--accent);border-radius:10px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:12px;cursor:pointer" onclick="setClientTab('mensagens')">${msgIcon(um.length,'24px')}<div><div style="font-weight:700;font-size:14px;color:var(--accent)">Você tem ${um.length} nova${um.length>1?'s':''} mensagem${um.length>1?'s':''}!</div><div style="font-size:12px;color:var(--muted);margin-top:2px">Toque para ler</div></div></div>`:''})()}
@@ -1357,7 +1376,7 @@ function screenPainel(){
         <div class="chart-card"><div class="chart-title">Por Tipo de Operação</div><div class="chart-sub">Distribuição do valor total</div><canvas id="painel-chart-pie"></canvas></div>
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-bottom:24px">
-        <div><div class="section-title" style="margin-bottom:12px">Últimos Lançamentos</div><div class="recent-list">${recentRows}</div></div>
+        <div><div id="painel-recent-title" class="section-title" style="margin-bottom:12px">${painelTituloHTML()}</div><div id="painel-recent-list" class="recent-list${S.painelCard?' recent-list--filtrado':''}">${recentRows}</div></div>
         <div><div class="section-title" style="margin-bottom:12px">Por Operação</div><div class="tx-table-wrap"><table class="tx-table"><thead><tr><th>Tipo</th><th>Qtd</th><th>Total</th></tr></thead><tbody>${opRows}</tbody></table></div></div>
       </div>
     </div>`;

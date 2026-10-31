@@ -270,6 +270,10 @@ body.light .sn-hero__pend{color:#7c4dff}
 .sn-mini:hover{transform:translateY(-3px);box-shadow:0 18px 34px -16px rgba(0,0,0,.6)}
 .sn-mini__ico{flex:0 0 auto;width:48px;height:48px;border-radius:15px;display:grid;place-items:center;background:var(--card2);border:1px solid var(--border)}
 .sn-mini__body{min-width:0}
+.sn-mini--btn{cursor:pointer;user-select:none;transition:transform .2s,box-shadow .2s,border-color .2s}
+.sn-mini--btn:focus-visible{outline:2px solid var(--c);outline-offset:2px}
+.sn-mini.is-ativo{border-color:var(--c);box-shadow:0 0 0 2px var(--c),0 18px 34px -16px rgba(0,0,0,.6)}
+.recent-list--filtrado{max-height:460px;overflow-y:auto;padding-right:4px}
 .sn-mini__val{font-size:clamp(15px,1.35vw,20px);font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums;white-space:nowrap}
 .sn-mini__lbl{font-size:12px;font-weight:500;color:var(--muted);margin-top:3px}
 

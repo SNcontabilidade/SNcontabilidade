@@ -85,7 +85,7 @@
 
     const ico = (u) => `<img src="${u}" alt="" style="width:30px;height:30px;object-fit:contain"/>`;
     const outrosIco = ico('https://res.cloudinary.com/dk10wezy9/image/upload/v1777141665/Outros_aebx7k.png');
-    const mini = (cor, icone, val, lbl) => `<div class="sn-mini" style="--c:${cor}"><div class="sn-mini__ico">${icone}</div><div class="sn-mini__body"><div class="sn-mini__val" style="color:${cor}">${val}</div><div class="sn-mini__lbl">${lbl}</div></div></div>`;
+    const mini = (cor, icone, val, lbl, chave) => `<div class="sn-mini sn-mini--btn${typeof S !== 'undefined' && S.painelCard === chave ? ' is-ativo' : ''}" data-card="${chave}" role="button" tabindex="0" title="Filtrar os últimos lançamentos" onclick="setPainelCard('${chave}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();setPainelCard('${chave}')}" style="--c:${cor}"><div class="sn-mini__ico">${icone}</div><div class="sn-mini__body"><div class="sn-mini__val" style="color:${cor}">${val}</div><div class="sn-mini__lbl">${lbl}</div></div></div>`;
     const pos = d.saldo >= 0;
     setTimeout(() => window.snHeroLegenda(false), 0);
     return `<section class="sn-hero ${pos ? 'is-pos' : 'is-neg'}">
@@ -104,11 +104,11 @@
         <div class="sn-hero__spark"><canvas id="sn-spark" aria-label="Evolução do saldo no período"></canvas></div>
       </section>
       <div class="sn-minis">
-        ${mini('var(--success)', opImg('receita', '30px'), fmt(d.rec), 'Receitas')}
-        ${mini('var(--danger)', opImg('despesa', '30px'), fmt(d.desp), 'Despesas')}
-        ${mini('var(--accent)', outrosIco, fmt(d.outros), 'Outros')}
-        ${mini('#14b8a6', opImg('investimento', '30px'), fmt(d.aplic), 'Aplicações')}
-        ${mini('var(--blue)', opImg('total_lanc', '30px'), d.txs.length, 'Lançamentos')}
+        ${mini('var(--success)', opImg('receita', '30px'), fmt(d.rec), 'Receitas', 'receita')}
+        ${mini('var(--danger)', opImg('despesa', '30px'), fmt(d.desp), 'Despesas', 'despesa')}
+        ${mini('var(--accent)', outrosIco, fmt(d.outros), 'Outros', 'outros')}
+        ${mini('#14b8a6', opImg('investimento', '30px'), fmt(d.aplic), 'Aplicações', 'aplicacao')}
+        ${mini('var(--blue)', opImg('total_lanc', '30px'), d.txs.length, 'Lançamentos', 'todos')}
       </div>`;
   };
 
