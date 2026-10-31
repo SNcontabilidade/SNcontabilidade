@@ -2,7 +2,7 @@
 // O trecho é EXTRAÍDO do app.js (de `const isNeg=` até o fim de `calcResumo`): o teste nunca diverge do código real.
 const fs = require('fs'), path = require('path');
 const src = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8').replace(/\r\n/g, '\n');
-const ini = src.indexOf('const isNeg=op=>'), fimMarca = 'saldo:liq.rec-liq.desp-liq.compras-liq.aplic};\n};', fim = src.indexOf(fimMarca, ini);
+const ini = src.indexOf('const isNeg=op=>'), fimMarca = 'saldo:liq.rec+liq.aporte-liq.desp-liq.compras-liq.aplic};\n};', fim = src.indexOf(fimMarca, ini);
 if (ini < 0 || fim < 0) { console.log('✖ não achei o bloco do saldo no app.js'); process.exit(1); }
 const bloco = src.slice(ini, fim + fimMarca.length);
 const { isNeg, isSaida, fluxoSinal, calcResumo } = new Function(bloco + '\nreturn { isNeg, isSaida, fluxoSinal, calcResumo };')();
@@ -36,8 +36,8 @@ eq('bens pagos reduzem', calcResumo([tx('receita', 1000), tx('bens', 250, { stat
 eq('despesa pendente também não reduz até ser paga', calcResumo([tx('receita', 1000), tx('despesa', 200, { status: 'pendente' })]).saldo, 1000);
 eq('aplicação paga reduz o saldo', calcResumo([tx('receita', 1000), tx('investimento', 400)]).saldo, 600);
 eq('aporte SOMA com a receita e entra no saldo', calcResumo([tx('receita', 100), tx('aporte', 500)]).saldo, 600);
-eq('o card Receitas inclui o aporte', calcResumo([tx('receita', 100), tx('aporte', 500)]).rec, 600);
-eq('aporte não aparece em Outros', calcResumo([tx('aporte', 500), tx('estoque', 7)]).outros, 7);
+eq('o card Receitas NÃO inclui o aporte', calcResumo([tx('receita', 100), tx('aporte', 500)]).rec, 100);
+eq('o aporte soma no card Outros (e no saldo)', calcResumo([tx('aporte', 500), tx('estoque', 7)]).outros, 507);
 eq('só aporte, sem receita', calcResumo([tx('aporte', 500)]).saldo, 500);
 eq('aporte pendente não entra até ser baixado', calcResumo([tx('aporte', 500, { status: 'pendente' })]).saldo, 0);
 eq('aporte menos compra paga', calcResumo([tx('aporte', 500), tx('estoque', 200)]).saldo, 300);
@@ -54,7 +54,7 @@ eq('liq ignora pendentes; os cards (rec, compras) mostram o total', [L.liq.rec, 
 
 // ── "Outros" mantém o significado de antes, menos a aplicação ──
 const mix = calcResumo([tx('estoque', 10), tx('bens', 20), tx('aporte', 30), tx('emprestimo', 40), tx('entre_bancos', 50), tx('op_x', 60), tx('investimento', 70)]);
-eq('Outros = tudo que não é receita/aporte, despesa/retirada nem aplicação', mix.outros, 180);
+eq('Outros = tudo que não é receita, despesa/retirada nem aplicação (inclui aporte)', mix.outros, 210);
 eq('aplicação separada', mix.aplic, 70);
 
 // ── a ordem por vencimento (mesmo critério do app: sem vencimento vai para o fim) ──
