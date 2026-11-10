@@ -1,17 +1,8 @@
-// ═══ Acesso (login pelo Firebase Authentication) ═════════════════════════════
-// Carregado por index.html (clientes) e admin.html, ANTES do app.js. Aqui ficam:
-//  (1) as regras que ligam "usuário + senha" a uma conta do Authentication (compartilhadas com a tela de Segurança);
-//  (2) o login e a carga de dados do CLIENTE: depois de entrar, ele lê SÓ os próprios dados — nunca baixa a lista de clientes.
-// Prefixos sg* (regras) e ac* (cliente). O cliente usa uma INSTÂNCIA PRÓPRIA do Firebase ('cliente'): assim entrar como cliente
-// não derruba o login do Google do admin no mesmo navegador.
-//
-//   e-mail interno = c<hash do usuário>.<n>@acesso.sn.invalid   (n = versão da conta; sobe no "reset de senha")
-//   senha do Authentication = 'sn#' + senha digitada            (o Firebase exige 6+ caracteres; a inicial tem 5)
-// ATENÇÃO: o hash, o prefixo e o formato do e-mail NÃO podem mudar depois que as contas existem — derrubaria todos os logins.
+// Acesso e sessão (clientes e admin). Prefixos sg* e ac*. Carregado antes do app.js.
 
 const SG_DOMINIO = 'acesso.sn.invalid';
 const SG_CONFIG_DOCS = ['banks', 'descriptions', 'customops', 'custombankicons', 'descriptionops', 'messages'];   // documentos compartilhados (sn/<nome> → config/<nome>)
-const SG_CAMPOS_PERFIL = ['id', 'razaoSocial', 'cnpj', 'email', 'username', 'mustChangePwd', 'createdAt', 'appVersion', 'lastLogin'];   // SEM senha
+const SG_CAMPOS_PERFIL = ['id', 'razaoSocial', 'cnpj', 'email', 'username', 'mustChangePwd', 'createdAt', 'appVersion', 'lastLogin'];
 
 // ── (1) regras puras (testadas no Node) ──────────────────────────────────────
 function sgNormUsuario(u) { return String(u == null ? '' : u).trim().toLowerCase(); }
@@ -21,8 +12,6 @@ async function sgHashUsuario(u) {
 }
 function sgEmail(hash, n) { return 'c' + hash + '.' + (n || 0) + '@' + SG_DOMINIO; }
 function sgSenhaAuth(s) { return 'sn#' + String(s == null ? '' : s); }
-// Senha inicial INDIVIDUAL (nunca mais "12345"): 8 caracteres sem os que se confundem na digitação (i, l, o, 0, 1) e só minúsculas/dígitos,
-// para o cliente digitar no celular sem tropeçar no caps lock. Aleatória de verdade (crypto), sorteio sem viés.
 const SG_ALFABETO_SENHA = 'abcdefghjkmnpqrstuvwxyz23456789';
 function sgGerarSenha(tam) {
   const n = tam || 8, a = SG_ALFABETO_SENHA, limite = 256 - (256 % a.length), out = [], buf = new Uint8Array(32);
@@ -30,7 +19,6 @@ function sgGerarSenha(tam) {
   return out.join('');
 }
 function sgPerfil(c) { const o = {}; SG_CAMPOS_PERFIL.forEach((k) => { if (c[k] !== undefined) o[k] = c[k]; }); return o; }
-// junta o que veio do cadastro antigo e do perfil novo: o acesso mais recente vence; a senha só é "padrão" se NENHUM dos dois disser que já foi trocada
 function acMesclarPerfil(antigo, perfil) {
   if (!perfil) return antigo;
   const o = Object.assign({}, antigo);
@@ -69,7 +57,6 @@ async function acClienteDoUsuario(user) {
   const v = await acFirestore().collection('vinculos').doc(user.uid).get();
   return v.exists ? ((v.data() || {}).clienteId || null) : null;
 }
-// usuário + senha digitados → { ok, clienteId } ou { ok:false, msg }
 async function acEntrar(usuario, senha) {
   try {
     await acPersistenciaSessao();
@@ -131,13 +118,11 @@ function acEstadoInatividade(ultima, agora, limite, aviso) {
   return { estado: falta <= aviso ? 'aviso' : 'ativo', restanteMs: falta };
 }
 
-// ── admin: espelha no modelo novo o que o admin grava no antigo (janela de convivência) ──
 function acEspelharConfig(docId, value) {
   if (!acEhAdmin() || !SG_CONFIG_DOCS.includes(docId)) return Promise.resolve();
   return firebase.firestore().collection('config').doc(docId).set({ value }).catch((e) => console.warn('[espelho] config/' + docId, e && e.code));
 }
 
-// admin: ao carregar, traz do modelo novo o que os clientes da versão nova gravam lá (último acesso, versão, conversas)
 function acAguardarLoginAdmin() {
   return new Promise((resolve) => {
     let feito = false; const fim = (u) => { if (!feito) { feito = true; resolve(u); } };

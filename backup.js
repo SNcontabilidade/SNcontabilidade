@@ -1,10 +1,6 @@
-// ═══ Backup do banco (só admin) ══════════════════════════════════════════════
-// Baixa UM arquivo .json com todos os documentos das coleções do app (💾), ou o ENVIA para uma pasta no Google Drive do admin (☁).
-// Registra quando foi o último backup (sn/backupmeta) e mostra o aviso no admin. Prefixo bk*. Carregado só pelo admin.html.
-// ATENÇÃO: o arquivo contém dados de clientes (CNPJ, e-mail, senhas, lançamentos) — guarde fora do Git.
+// Cópia de segurança dos dados (só admin). Prefixo bk*. Carregado só pelo admin.html.
 
-const BK_COLECOES = ['sn', 'sntx', 'perfil', 'vinculos', 'conversas', 'leitura', 'config'];   // as que as regras deixam LISTAR (as 5 últimas são o modelo novo de acesso)
-// "loginmeta" entra à parte: as regras só deixam LER documento a documento (get), nunca listar — então vem pelo hash do usuário de cada cliente.
+const BK_COLECOES = ['sn', 'sntx', 'perfil', 'vinculos', 'conversas', 'leitura', 'config'];
 const BK_FORMATO = 1;
 
 // Timestamp do Firestore vira texto ISO; o resto passa como veio (arrays, mapas, strings, números)
@@ -29,10 +25,6 @@ function bkNomeArquivo(d) {
 }
 function bkTamanho(bytes) { return bytes < 1048576 ? Math.max(1, Math.round(bytes / 1024)) + ' KB' : (bytes / 1048576).toFixed(1).replace('.', ',') + ' MB'; }
 
-// ── restauração (só lançamentos, e só de quem está VAZIO no banco) ─────────────
-// arquivo: JSON do backup · atuais: { idDoCliente: txsAtuais|null } lidos do banco agora.
-// Devolve o que PODE ser restaurado: cliente com lançamentos no backup e documento ausente/vazio no banco.
-// Quem já tem lançamento no banco NUNCA entra na lista — restaurar não sobrescreve nada que exista.
 function bkPlanoRestauracao(arquivo, atuais) {
   const col = (arquivo && arquivo.colecoes) || {}, tx = col.sntx || {}, nomes = {};
   const lista = col.sn && col.sn.clients && Array.isArray(col.sn.clients.value) ? col.sn.clients.value : [];
@@ -48,9 +40,8 @@ function bkPlanoRestauracao(arquivo, atuais) {
   return { pode: pode.sort(porNome), jaTem: jaTem.sort(porNome) };
 }
 
-// ── aviso do último backup + envio ao Drive: partes PURAS ─────────────────────
 const BK_HORAS_ALERTA = 24, BK_HORAS_CRITICO = 72;             // até 24 h = ok · 24 a 72 h = aviso · mais que isso (ou nunca) = crítico. Passou de 24 h, o automático envia ao entrar
-const BK_MANTER_DRIVE = 30;                                      // quantos backups ficam na pasta do Drive (os mais velhos são apagados): ~1 mês de backups diários
+const BK_MANTER_DRIVE = 30;
 const BK_PASTA_DRIVE = 'SN-Backups';
 const BK_ESCOPO_DRIVE = 'https://www.googleapis.com/auth/drive.file';   // só enxerga o que ESTE app criou — nunca o resto do Drive
 function bkDiasDesde(iso, agora) {
@@ -76,7 +67,6 @@ function bkStatus(meta, agora) {
     cor: nivel === 'ok' ? '#16a34a' : nivel === 'aviso' ? '#f59e0b' : '#ef4444',
   };
 }
-// quais arquivos da pasta do Drive apagar: os que passam de "manter", do mais antigo, e SÓ os que têm nome de backup nosso
 function bkParaApagar(arquivos, manter) {
   const nossos = (arquivos || []).filter((f) => f && f.id && /^backup-sn_.*\.json$/.test(String(f.name || '')));
   nossos.sort((a, b) => String(b.createdTime || '').localeCompare(String(a.createdTime || '')));
@@ -88,8 +78,6 @@ function bkMultipart(metadados, texto, limite) {
   return { tipo: 'multipart/related; boundary=' + b, corpo: '--' + b + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' + JSON.stringify(metadados) + '\r\n--' + b + '\r\nContent-Type: application/json\r\n\r\n' + texto + '\r\n--' + b + '--' };
 }
 
-// ── tela / ação ──────────────────────────────────────────────────────────────
-// loginmeta/<hash do usuário> → { n } (versão da conta de acesso). Lê um por um, a partir da lista de clientes que já foi lida.
 async function bkLerLoginmeta(docsSn) {
   const cl = (docsSn || []).find((d) => d.id === 'clients'), lista = cl && cl.data && Array.isArray(cl.data.value) ? cl.data.value : [];
   if (typeof sgHashUsuario !== 'function') throw new Error('acesso.js não carregado');
@@ -104,7 +92,6 @@ async function bkLerLoginmeta(docsSn) {
 let bkOcupado = false, bkAutoRodando = false;
 function bkRotulo(texto, cor, id) { const b = document.getElementById(id || 'bk-btn'); if (b) { b.textContent = texto; b.style.color = cor || ''; } }
 
-// lê TODAS as coleções e monta o arquivo. Se uma coleção falhar, ABORTA: nunca devolve um backup incompleto. ctx.onde diz em qual falhou.
 async function bkGerarArquivo(ctx) {
   const colecoes = {};
   for (const nome of BK_COLECOES) {
@@ -122,7 +109,6 @@ async function bkGerarArquivo(ctx) {
   return { arq, texto, resumo: Object.keys(arq.contagens).map((k) => k + ': ' + arq.contagens[k]).join(' · ') + ' · ' + bkTamanho(texto.length) };
 }
 
-// ── quando foi o último backup (sn/backupmeta, só o admin lê) ──
 async function bkCarregarMeta() {
   try { const v = await fsGet('backupmeta'); window.__bkMeta = v && typeof v === 'object' ? v : {}; } catch (e) { window.__bkMeta = window.__bkMeta || {}; }
   bkAtualizarInfo();
@@ -171,7 +157,6 @@ async function admBackup() {
 
 // ☁ Google Drive ----------------------------------------------------------------
 const bkTokenValido = () => { const t = typeof S !== 'undefined' && S.googleToken, at = Number(sessionStorage.getItem('sn:googleTokenAt') || 0); return t && at && Date.now() - at < 50 * 60000 ? t : null; };
-// reautentica com o Google JÁ pedindo a permissão do Drive. Tem de ser chamada direto do clique (o navegador bloqueia popup depois de um "await").
 function bkReautenticar() {
   const provider = new firebase.auth.GoogleAuthProvider();
   provider.addScope('https://www.googleapis.com/auth/spreadsheets'); provider.addScope(BK_ESCOPO_DRIVE);
@@ -205,14 +190,13 @@ async function bkPastaDrive(token) {
   const nova = await (await bkDriveReq(token, 'https://www.googleapis.com/drive/v3/files?fields=id', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: BK_PASTA_DRIVE, mimeType: 'application/vnd.google-apps.folder' }) })).json();
   return nova.id;
 }
-// gera o backup, envia para SN-Backups no Drive, confere o tamanho e apaga só os mais antigos que BK_MANTER_DRIVE
 async function bkEnviarDrive(token, ctx) {
   const { texto, resumo } = await bkGerarArquivo(ctx);
   const pasta = await bkPastaDrive(token), nome = bkNomeArquivo();
   const mp = bkMultipart({ name: nome, parents: [pasta], mimeType: 'application/json' }, texto);
   const up = await (await bkDriveReq(token, 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,size', { method: 'POST', headers: { 'Content-Type': mp.tipo }, body: new Blob([mp.corpo], { type: mp.tipo }) })).json();
   const bytes = new Blob([texto]).size;
-  if (!up.id || (up.size != null && Number(up.size) !== bytes)) throw new Error('o Drive não confirmou o arquivo inteiro');   // nunca dá o backup como feito sem a prova
+  if (!up.id || (up.size != null && Number(up.size) !== bytes)) throw new Error('o Drive não confirmou o arquivo inteiro');
   let apagados = 0;
   try {
     const q = encodeURIComponent("'" + pasta + "' in parents and trashed=false");
@@ -229,7 +213,6 @@ function bkMsgErroDrive(e) {
   if (e && e.code === 'auth/popup-blocked') return 'O navegador bloqueou a janela do Google. Libere pop-ups para este site e tente de novo.';
   return (e && e.message) || 'erro desconhecido';
 }
-// ☁ botão: envia agora (pede a permissão do Google se preciso)
 async function admBackupDrive() {
   if (bkOcupado) return;
   let token = bkTokenValido();
@@ -249,7 +232,6 @@ async function admBackupDrive() {
     bkRotulo('⚠️ ' + bkMsgErroDrive(e) + (ctx.onde ? ' (falhou em "' + ctx.onde + '")' : ''), '#ef4444', 'bk-drive-btn');
   } finally { bkOcupado = false; }
 }
-// automático: ao entrar no admin (ou ao encerrar a sessão por inatividade), se o último backup passou de 24 h e há permissão do Drive à mão, envia sozinho (sem janela)
 async function bkAutoDrive() {
   if (bkAutoRodando || bkOcupado) return;
   if (typeof S !== 'undefined' && S.erroLeitura) return;
@@ -257,7 +239,7 @@ async function bkAutoDrive() {
   try {
     if (!window.__bkMeta) await bkCarregarMeta();
     if (!bkStatus(window.__bkMeta).atrasado) return;
-    const token = bkTokenValido(); if (!token) return;            // sem permissão à mão: o aviso e o botão ☁ cuidam
+    const token = bkTokenValido(); if (!token) return;
     bkOcupado = true; bkRotulo('⏳ Backup automático no Drive…', '', 'bk-drive-btn');
     const r = await bkEnviarDrive(token, { onde: '' });
     bkRotulo('✅ Backup automático enviado ao Drive', '#16a34a', 'bk-drive-btn');

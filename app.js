@@ -130,12 +130,8 @@ const S={
   syncProgress:0,syncTotal:0,
 };
 
-// ─── FIRESTORE ────────────────────────────────────────────────────────────────
-// acFirestore(): no site do cliente é a instância própria 'cliente' (login do cliente); no admin é a padrão (login Google)
-// REGRAS FECHADAS (Fase 4): sem login do Google nada lê. Se a leitura FALHAR no admin, S.erroLeitura trava toda gravação — um painel vazio nunca pode sobrescrever o cadastro.
 const ERRO_LEITURA_MSG='A leitura do banco falhou, então a gravação foi bloqueada para não apagar dados. Recarregue a página e entre de novo com o Google.';
 async function fsGet(docId){try{const snap=await acFirestore().collection('sn').doc(docId).get();return snap.exists?snap.data().value:null;}catch(e){console.error('fsGet',e);if(acEhAdmin())S.erroLeitura=true;return null;}}
-// admin: além do documento antigo, espelha os compartilhados em config/<nome> (janela de convivência com a versão antiga do app)
 async function fsSet(docId,value){if(acEhAdmin()&&S.erroLeitura)throw new Error(ERRO_LEITURA_MSG);try{await acFirestore().collection('sn').doc(docId).set({value});acEspelharConfig(docId,value);}catch(e){console.error('fsSet error',docId,e);throw e;}}
 // Por cliente: salva lançamentos num documento separado para evitar limite de 1MB
 async function fsGetTx(clientId){try{const snap=await acFirestore().collection('sntx').doc(clientId).get();return snap.exists?snap.data().txs:null;}catch(e){console.error('fsGetTx',e);if(acEhAdmin())S.erroLeitura=true;return null;}}
@@ -157,11 +153,9 @@ async function loadAll(){
     if(txResults[i]!==null&&txResults[i]!==undefined){
       S.txMap[c.id]=txResults[i];
     } else {
-      // fallback: tenta ler do txmap legado
       S.txMap[c.id]=[];
     }
   });
-  // Migração única: se ainda existe o txmap legado, migra para documentos individuais
   const legacyTxMap=await fsGet('txmap');
   if(legacyTxMap&&typeof legacyTxMap==='object'&&!Array.isArray(legacyTxMap)){
     let migrated=false;
@@ -173,7 +167,6 @@ async function loadAll(){
       }
     }
     if(migrated){
-      // Remove o txmap legado após migração
       try{await firebase.firestore().collection('sn').doc('txmap').delete();}catch{}
       console.log('[SN] Migração txmap → sntx concluída');
     }
@@ -185,7 +178,7 @@ async function loadAll(){
   S.messages=Array.isArray(messages)?messages:[];
   S.msgRead=(msgRead&&typeof msgRead==='object'&&!Array.isArray(msgRead))?msgRead:{};
   S.clientMessages=(clientMessages&&typeof clientMessages==='object'&&!Array.isArray(clientMessages))?clientMessages:{};
-  await acMesclarNovoAdmin();   // admin: junta o que os clientes da versão nova gravaram no modelo novo (acesso, versão, conversas)
+  await acMesclarNovoAdmin();
   // Pré-popula descriptionOps a partir dos defaults se vazio
   if(!descriptionOps){
     Object.entries(OP_DESCRIPTIONS_DEFAULT).forEach(([op,descs])=>{
@@ -215,7 +208,6 @@ function saveCustomOps()       {return fsSet('customops',S.customOps);}
 function saveCustomBankIcons() {return fsSet('custombankicons',S.customBankIcons);}
 function saveDescriptionOps()  {return fsSet('descriptionops',S.descriptionOps);}
 function saveMessages()        {return fsSet('messages',S.messages);}
-// Cliente (versão nova): grava só no próprio documento. Admin: grava o modelo antigo (união) e espelha a conversa do cliente em questão.
 function saveMsgRead(){
   if(!IS_ADMIN_PAGE){const id=S.session?.clientId;return acFirestore().collection('leitura').doc(id).set({lido:S.msgRead[id]||''});}
   return fsSet('msgread',S.msgRead);
@@ -375,7 +367,6 @@ function pageLoginAdmin(){return`<div class="center-page">
   </div>
   <div style="position:fixed;bottom:16px;left:0;right:0;text-align:center;font-size:11px;color:var(--muted);letter-spacing:.02em">© Desenvolvido por <strong style="color:var(--accent)">Kelvin Santos</strong> &nbsp;·&nbsp; <span style="opacity:.6">v${APP_VERSION}</span></div>
 </div>`;}
-// Login do cliente: usuário+senha → conta do Authentication (acesso.js). Só DEPOIS de entrar o app baixa os dados — e só os dele.
 let _loginOcupado=false;
 async function doLogin(){
   if(_loginOcupado)return;
@@ -400,7 +391,7 @@ async function doGoogleLogin(){
   try{
     const provider=new firebase.auth.GoogleAuthProvider();
     provider.addScope('https://www.googleapis.com/auth/spreadsheets');
-    provider.addScope('https://www.googleapis.com/auth/drive.file');   // backup no Drive: só enxerga os arquivos que o próprio app cria
+    provider.addScope('https://www.googleapis.com/auth/drive.file');
     provider.setCustomParameters({login_hint:ADMIN_EMAIL});
     const result=await firebase.auth().signInWithPopup(provider);
     const email=result.user.email;
@@ -411,11 +402,10 @@ async function doGoogleLogin(){
     sessionStorage.setItem('sn:session',JSON.stringify(S.session));
     await loadAll();if(S.erroLeitura)alert(ERRO_LEITURA_MSG);
     S.page='admin';S.adminView='dashboard';render();
-    if(typeof bkAutoDrive==='function')setTimeout(bkAutoDrive,1500);   // backup semanal automático no Drive (se estiver atrasado)
+    if(typeof bkAutoDrive==='function')setTimeout(bkAutoDrive,1500);
   }catch(e){if(errEl)errEl.textContent='Erro ao autenticar: '+(e.message||'tente novamente');}
 }
 function pageChangePwd(){return`<div class="center-page"><img src="${getLogo()}" style="width:140px;margin-bottom:24px;object-fit:contain" alt="SN" onerror="this.style.display='none'"/><div class="card" style="width:100%;max-width:360px"><h3 style="color:var(--accent);margin-bottom:6px">Primeiro Acesso</h3><p style="color:var(--muted);font-size:13px;margin-bottom:20px">Crie uma senha pessoal para continuar.</p><div class="field"><label class="label">Nova Senha</label><input id="cp-pass" type="password" class="inp"/></div><div class="field"><label class="label">Confirmar</label><input id="cp-conf" type="password" class="inp" onkeydown="if(event.key==='Enter')doChangePwd()"/></div><p id="cp-err" class="err"></p><button class="btn btn-acc btn-full" style="padding:12px" onclick="doChangePwd()">Confirmar Nova Senha</button></div></div>`;}
-// Troca de senha do cliente: a senha nova vai para o Authentication (guardada com hash pelo Google), nunca para o banco
 async function doChangePwd(){
   const p=q('#cp-pass').value,c=q('#cp-conf').value,err=q('#cp-err');
   if(p.length<6){err.textContent='Mínimo 6 caracteres.';return;}
@@ -433,9 +423,6 @@ async function doChangePwd(){
     err.textContent=e&&e.code==='auth/requires-recent-login'?'Por segurança, saia e entre de novo para trocar a senha.':'Não foi possível trocar a senha agora. Tente de novo.';
   }
 }
-// ─── INATIVIDADE (admin) ───
-// Sem mexer o mouse/teclado por IDLE_ADMIN_MS a sessão do admin é encerrada (aviso de 1 min antes, com "Continuar"). Antes de sair, se o backup estiver
-// atrasado e houver permissão do Drive, tenta enviá-lo. Ao voltar é preciso entrar com o Google — e o backup automático roda no login.
 const IDLE_ADMIN_MS=30*60*1000,IDLE_AVISO_MS=60*1000;
 let _idleUltima=Date.now(),_idleAtivo=false;
 function idleFechar(){const m=document.getElementById('idle-aviso');if(m)m.remove();}
@@ -630,14 +617,13 @@ function saveClientForm(){
   if(!/^[^\s]+$/.test(username)){err.textContent='Login não pode ter espaços.';return;}
   const duplicate=S.clients.find(c=>c.username.toLowerCase()===username.toLowerCase()&&c.id!==S.editClientId);
   if(duplicate){err.textContent='Este login já está em uso por outro cliente.';return;}
-  let acessoNovo=null; // função que cria/ajusta o acesso (Authentication) do cliente depois de salvar
-  const senhaNova=sgGerarSenha(8);   // senha inicial própria (nunca mais 12345)
+  let acessoNovo=null;
+  const senhaNova=sgGerarSenha(8);
   if(S.editClientId){
     const antigo=S.clients.find(c=>c.id===S.editClientId);
     const loginMudou=antigo&&antigo.username.trim().toLowerCase()!==username.trim().toLowerCase();
     S.clients=S.clients.map(c=>c.id===S.editClientId?{...c,razaoSocial:rs,cnpj,email,username,...(loginMudou?{password:senhaNova,mustChangePwd:true}:{})}:c);
     const novo=S.clients.find(c=>c.id===S.editClientId);
-    // trocar o LOGIN troca a conta de acesso: a senha volta para a inicial (a senha atual do cliente não é conhecida do admin)
     acessoNovo=async()=>{if(loginMudou&&typeof sgTrocarLoginAcesso==='function'){await sgTrocarLoginAcesso(novo,antigo.username,senhaNova);sgMostrarSenha(novo.razaoSocial,novo.username,senhaNova);}await sgEspelharPerfil(novo);};
   }else{const newClient={id:uid(),razaoSocial:rs,cnpj,email,username,password:senhaNova,mustChangePwd:true,createdAt:new Date().toISOString()};
   S.clients.push(newClient);

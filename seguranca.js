@@ -1,11 +1,4 @@
-// ═══ Segurança · Fase 1 (só admin) ═══════════════════════════════════════════
-// Prepara a estrutura nova SEM tirar nada do ar: cria uma conta de acesso (Firebase Authentication) para cada
-// cliente, com a MESMA senha de hoje, e COPIA os dados para coleções por cliente. Não altera nada do que o app
-// atual usa (sn/*, sntx/*). Carregado só pelo admin.html. Prefixo sg*.
-//
-// As regras de usuário → conta (hash, e-mail interno, senha do Authentication, perfil sem senha) vivem em acesso.js, que o
-// admin.html carrega antes deste arquivo. Coleções novas: vinculos/{uid} {clienteId,n}  loginmeta/{hash} {n,...}  perfil/{id}
-// conversas/{id}  leitura/{id}  config/{doc}. As regras do Firestore ficam num arquivo local (fora do Git).
+// Tela de Segurança do admin. Prefixo sg*. Carregado só pelo admin.html.
 
 // ── núcleo puro (testado no Node) ────────────────────────────────────────────
 function sgValidarCliente(c) {
@@ -27,8 +20,6 @@ function sgCanon(v) {
   return v;
 }
 const sgIgual = (a, b) => JSON.stringify(sgCanon(a)) === JSON.stringify(sgCanon(b));
-// desde a Fase 2 o cliente atualiza no PRÓPRIO perfil o último acesso, a versão do app e o "trocar senha": esses 3 campos podem
-// legitimamente diferir do cadastro antigo, então a conferência de cópia os ignora
 function sgPerfilEstavel(p) { const o = Object.assign({}, p); ['lastLogin', 'appVersion', 'mustChangePwd'].forEach((k) => { delete o[k]; }); return o; }
 
 // ── estado e tela ────────────────────────────────────────────────────────────
@@ -50,8 +41,6 @@ function sgErroAmigavel(e) {
   return (e && e.message && !c ? e.message : c) || 'erro desconhecido';
 }
 
-// ── admin: mantém o modelo novo em dia enquanto o antigo ainda existe (janela de convivência) ──
-// Tudo aqui é "melhor esforço": se falhar, avisa no console e o botão 2 da tela (Copiar dados) refaz a cópia inteira.
 async function sgEspelharPerfil(c) {
   if (!c || !c.id) return;
   try { await sgDb().collection('perfil').doc(c.id).set(sgPerfil(c)); } catch (e) { console.warn('[espelho] perfil', e && e.code); }
@@ -75,7 +64,6 @@ async function sgCriarAcessoCliente(c, senha, n) {
   try { await sec.auth().signOut(); } catch (e) { /* segue */ }
   return uid;
 }
-// desliga os acessos antigos do cliente (apaga os vínculos; a conta do Authentication fica sem efeito). `manterUid` = o acesso novo.
 async function sgRevogarAcessos(clienteId, manterUid, usuarioAntigo) {
   const snap = await sgDb().collection('vinculos').where('clienteId', '==', clienteId).get();
   const b = sgDb().batch(); let n = 0;
@@ -83,7 +71,6 @@ async function sgRevogarAcessos(clienteId, manterUid, usuarioAntigo) {
   if (usuarioAntigo) b.delete(sgDb().collection('loginmeta').doc(await sgHashUsuario(usuarioAntigo)));
   await b.commit(); return n;
 }
-// volta o cliente à senha inicial: cria a conta nova ANTES de desligar a antiga (nunca deixa o cliente sem acesso por falha no meio)
 async function sgResetarAcesso(c, senha) {
   if (!senha) throw new Error('senha inicial não informada');
   const meta = await sgDb().collection('loginmeta').doc(await sgHashUsuario(c.username)).get();
@@ -91,7 +78,6 @@ async function sgResetarAcesso(c, senha) {
   const uid = await sgCriarAcessoCliente(c, senha, n);
   await sgRevogarAcessos(c.id, uid, null);
 }
-// o login (usuário) mudou: cria o acesso do login novo com a senha inicial e desliga o do login antigo
 async function sgTrocarLoginAcesso(c, usuarioAntigo, senha) {
   if (!senha) throw new Error('senha inicial não informada');
   const uid = await sgCriarAcessoCliente(c, senha, 0);
@@ -102,8 +88,6 @@ async function sgApagarAcessoECopias(c) {
   const b = sgDb().batch(); ['perfil', 'conversas', 'leitura'].forEach((col) => b.delete(sgDb().collection(col).doc(c.id))); await b.commit();
 }
 
-// ── senhas iniciais individuais ──────────────────────────────────────────────
-// Mostra UMA vez a senha inicial gerada (novo cliente, reset, troca de login) com botão de copiar. A senha também fica no cadastro até a limpeza final.
 function sgFecharModal() { const m = document.getElementById('sg-modal'); if (m) m.remove(); }
 function sgModal(html) {
   sgFecharModal(); const m = document.createElement('div'); m.id = 'sg-modal';
@@ -122,7 +106,7 @@ async function sgCopiar() {
   const b = document.getElementById('sg-copiar');
   try { await navigator.clipboard.writeText(window.__sgTextoAcesso || ''); if (b) b.textContent = '✅ Copiado'; } catch (e) { if (b) b.textContent = 'Selecione e copie à mão'; }
 }
-function sgCsvSenhas(lista) {                                                     // [{usuario, razao, email, senha}] → texto CSV (; e BOM para abrir certo no Excel)
+function sgCsvSenhas(lista) {
   const q = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
   return '﻿' + ['Usuário;Razão social;E-mail;Senha inicial'].concat((lista || []).map((x) => [x.usuario, x.razao, x.email, x.senha].map(q).join(';'))).join('\r\n') + '\r\n';
 }
@@ -131,45 +115,12 @@ function sgBaixarArquivo(texto, nome) {
   a.href = URL.createObjectURL(blob); a.download = nome; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
 }
 const sgNomeCsv = () => 'senhas-iniciais_' + new Date().toISOString().slice(0, 10) + '.csv';
-// os clientes que ainda estão com a senha inicial (marca mustChangePwd) — a senha vem do cadastro
 function sgPendentesDeTroca(clientes) { return (clientes || []).filter((c) => c && c.mustChangePwd === true && c.password != null && String(c.password) !== ''); }
 function sgBaixarSenhas() {
   const lista = sgPendentesDeTroca(S.clients).map((c) => ({ usuario: c.username, razao: c.razaoSocial, email: c.email, senha: c.password }));
   if (!lista.length) { sgLog('Nenhum cliente com senha inicial pendente de troca.', true); return; }
   sgBaixarArquivo(sgCsvSenhas(lista), sgNomeCsv()); sgLog('Lista baixada: ' + lista.length + ' cliente(s) ainda com a senha inicial. Guarde o arquivo fora do Git e apague depois de entregar.', true);
 }
-// troca a senha inicial padrão (12345) de cada cliente que ainda não trocou por uma senha própria e aleatória.
-// Ordem por cliente: cria a conta nova (n+1) → grava o cadastro com a senha nova → só então o acesso antigo fica sem efeito. Rodar de novo é seguro (só pega quem ainda está em 12345).
-async function sgSenhasIndividuais() {
-  if (sgState.busy) return;
-  const alvo = (S.clients || []).filter((c) => c && c.mustChangePwd === true && String(c.password) === '12345');
-  if (!alvo.length) { sgLog('Nenhum cliente com a senha padrão 12345 e troca pendente.', true); return; }
-  if (!confirm('Dar uma senha inicial PRÓPRIA para ' + alvo.length + ' cliente(s) que ainda estão com 12345?\n\nEles continuam entrando normalmente depois que você passar a nova senha. Quem já trocou a senha NÃO é alterado.\nAo final será baixado um arquivo com as senhas.')) return;
-  sgState.busy = true; sgRender(); sgLog('Gerando senhas individuais para ' + alvo.length + ' cliente(s)…', true);
-  const feitos = [], falhas = [];
-  try {
-    if (!(await sgAguardarLogin())) throw new Error(SG_MSG_SEM_LOGIN);
-    for (let i = 0; i < alvo.length; i++) {
-      const c = alvo[i], nome = c.razaoSocial || c.id, senha = sgGerarSenha(8);
-      try {
-        await sgResetarAcesso(c, senha);
-        S.clients = S.clients.map((x) => (x.id === c.id ? Object.assign({}, x, { password: senha, mustChangePwd: true }) : x));
-        await saveClients();
-        await sgEspelharPerfil(S.clients.find((x) => x.id === c.id));
-        feitos.push({ usuario: c.username, razao: c.razaoSocial, email: c.email, senha });
-      } catch (e) { console.error('[senhas]', nome, e); falhas.push(nome + ' — ' + sgErroAmigavel(e)); if (e && (e.code === 'auth/too-many-requests' || e.code === 'permission-denied')) throw e; }
-      if ((i + 1) % 5 === 0) sgLog('… ' + (i + 1) + '/' + alvo.length);
-      await sgPausa(300);
-    }
-  } catch (e) { sgLog('⛔ Parou: ' + sgErroAmigavel(e) + ' — o que já foi feito está salvo; rode de novo para continuar.'); }
-  if (feitos.length) sgBaixarArquivo(sgCsvSenhas(feitos), sgNomeCsv());
-  sgLog('Concluído: ' + feitos.length + ' cliente(s) com senha nova' + (feitos.length ? ' (arquivo baixado: guarde fora do Git e apague depois de entregar)' : '') + '; ' + falhas.length + ' com problema.');
-  falhas.forEach((f) => sgLog('  ✖ ' + f));
-  sgState.busy = false; await sgCarregarEstado(); render();
-}
-
-// Ao recarregar a página o Firebase leva um instante para restaurar o login do Google. Sem esperar, a 1ª leitura sai SEM login e as
-// regras (que só liberam o admin) respondem "sem permissão". Devolve o usuário logado ou null se não houver login ativo neste endereço.
 function sgAguardarLogin() {
   return new Promise((resolve) => {
     let feito = false; const fim = (u) => { if (!feito) { feito = true; resolve(u); } };
@@ -210,7 +161,7 @@ async function sgCriarContas() {
       let uid = null;
       try { uid = (await sec.auth().createUserWithEmailAndPassword(email, senha)).user.uid; }
       catch (e) {
-        if (e.code === 'auth/email-already-in-use') {              // sobrou de uma rodada anterior: só aproveita se a senha for a mesma
+        if (e.code === 'auth/email-already-in-use') {
           try { uid = (await sec.auth().signInWithEmailAndPassword(email, senha)).user.uid; } catch (e2) { falhas.push(nome + ' — conta já existe com outra senha'); }
         } else if (e.code === 'auth/operation-not-allowed' || e.code === 'auth/too-many-requests') { throw e; }
         else falhas.push(nome + ' — ' + sgErroAmigavel(e));
@@ -223,7 +174,7 @@ async function sgCriarContas() {
       }
       try { await sec.auth().signOut(); } catch (e) { /* segue */ }
       if ((i + 1) % 10 === 0) sgLog('… ' + (i + 1) + '/' + clientes.length);
-      await sgPausa(250);                                          // não estressar o limite do Authentication
+      await sgPausa(250);
     }
     sgLog('Concluído: ' + criadas + ' conta(s) criada(s), ' + ja + ' já existiam, ' + falhas.length + ' com problema (de ' + clientes.length + ' clientes).');
     falhas.forEach((f) => sgLog('  ✖ ' + f));
@@ -272,13 +223,12 @@ async function sgConferir() {
     const msgs = (await fsGet('clientmessages')) || {}; let cOk = 0, cTot = 0;
     for (const id of Object.keys(msgs)) { if (!Array.isArray(msgs[id])) continue; cTot++; const s = await sgDb().collection('conversas').doc(id).get(); if (s.exists && sgIgual(s.data().msgs, msgs[id])) cOk++; }
     (cOk === cTot ? ok : mal)('conversas: ' + cOk + ' de ' + cTot + ' idênticas');
-    // b) cada cliente consegue ENTRAR com a senha de hoje, lê o próprio perfil e NÃO lê o de outro
     const sec = sgAppSecundario(); let entrou = 0, leuProprio = 0, barrouOutro = 0, tentou = 0;
-    const naoEntrou = [], trocouNoApp = [];   // quem NÃO entrou com a senha do cadastro: ou trocou a senha no app novo (o cadastro guarda a antiga — esperado) ou é problema de verdade
+    const naoEntrou = [], trocouNoApp = [];
     for (let i = 0; i < clientes.length; i++) {
       const c = clientes[i]; if (sgValidarCliente(c)) continue; tentou++;
       try {
-        const hu = await sgHashUsuario(c.username), mm = await sgDb().collection('loginmeta').doc(hu).get();   // as regras não deixam LISTAR loginmeta, só ler um por vez
+        const hu = await sgHashUsuario(c.username), mm = await sgDb().collection('loginmeta').doc(hu).get();
         await sec.auth().signInWithEmailAndPassword(sgEmail(hu, mm.exists ? Number((mm.data() || {}).n) || 0 : 0), sgSenhaAuth(c.password)); entrou++;
         try { const s = await sec.firestore().collection('perfil').doc(c.id).get(); if (s.exists) leuProprio++; } catch (e) { /* conta como falha */ }
         const outro = clientes[(i + 1) % clientes.length];
@@ -309,7 +259,7 @@ function sgHTML() {
   return '<div class="card" style="padding:20px;max-width:820px"><h3 style="margin:0 0 6px">Segurança dos dados · Fase 1</h3>' +
     '<p style="color:var(--muted);font-size:13px;margin:0 0 14px">Prepara a proteção <b>sem tirar nada do ar</b>: cria o acesso de cada cliente (mesma senha de hoje) e copia os dados para a estrutura nova. Os dados atuais e o app dos clientes <b>não são alterados</b>. Faça o <b>Backup</b> antes.</p>' +
     tabela +
-    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:16px 0"><button class="btn btn-acc btn-sm"' + b + ' onclick="sgCriarContas()">1. Criar contas de acesso</button><button class="btn btn-acc btn-sm"' + b + ' onclick="sgCopiarDados()">2. Copiar dados</button><button class="btn btn-ghost btn-sm"' + b + ' onclick="sgConferir()">3. Conferir tudo</button><button class="btn btn-acc btn-sm"' + b + ' onclick="sgSenhasIndividuais()" title="Troca a senha 12345 de quem ainda não trocou por uma senha própria e baixa a lista">4. Senhas individuais</button><button class="btn btn-ghost btn-sm"' + b + ' onclick="sgBaixarSenhas()" title="Baixa a lista de quem ainda está com a senha inicial">⬇ Lista de senhas iniciais</button><button class="btn btn-ghost btn-sm"' + b + ' onclick="sgCarregarEstado()">↻ Atualizar</button></div>' +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:16px 0"><button class="btn btn-acc btn-sm"' + b + ' onclick="sgCriarContas()">1. Criar contas de acesso</button><button class="btn btn-acc btn-sm"' + b + ' onclick="sgCopiarDados()">2. Copiar dados</button><button class="btn btn-ghost btn-sm"' + b + ' onclick="sgConferir()">3. Conferir tudo</button><button class="btn btn-ghost btn-sm"' + b + ' onclick="sgBaixarSenhas()" title="Baixa a lista de quem ainda está com a senha inicial">⬇ Lista de senhas iniciais</button><button class="btn btn-ghost btn-sm"' + b + ' onclick="sgCarregarEstado()">↻ Atualizar</button></div>' +
     '<pre id="sg-log" style="background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:12px;font-size:12px;max-height:260px;overflow:auto;white-space:pre-wrap;margin:0"></pre></div>';
 }
 function admSeguranca() {
