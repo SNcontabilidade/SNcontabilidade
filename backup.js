@@ -160,7 +160,7 @@ const bkTokenValido = () => { const t = typeof S !== 'undefined' && S.googleToke
 function bkReautenticar() {
   const provider = new firebase.auth.GoogleAuthProvider();
   provider.addScope('https://www.googleapis.com/auth/spreadsheets'); provider.addScope(BK_ESCOPO_DRIVE);
-  provider.setCustomParameters({ login_hint: typeof ADMIN_EMAIL !== 'undefined' ? ADMIN_EMAIL : '' });
+  const atual = firebase.auth().currentUser; provider.setCustomParameters({ login_hint: (atual && atual.email) || '' });
   const u = firebase.auth().currentUser; if (!u) return Promise.reject(new Error('sem login'));
   return u.reauthenticateWithPopup(provider).then((r) => {
     const t = r && r.credential && r.credential.accessToken; if (!t) throw new Error('o Google não devolveu a permissão');

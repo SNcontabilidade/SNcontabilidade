@@ -339,7 +339,9 @@ function render(){
 }
 
 // ─── LOGIN ────────────────────────────────────────────────────────────────────
-const ADMIN_EMAIL='contabilidade@snsolucoescontabeis.com';
+const ADMIN_EMAILS=['contabilidade@snsolucoescontabeis.com','bpo@snsolucoescontabeis.com'];   // quem entra no admin (as regras do Firestore têm a mesma lista)
+const ADMIN_EMAIL=ADMIN_EMAILS[0];
+const ehAdmin=e=>ADMIN_EMAILS.includes(String(e||'').trim().toLowerCase());
 const IS_ADMIN_PAGE=typeof ADMIN_MODE!=='undefined'&&ADMIN_MODE===true;
 function pageLogin(){if(IS_ADMIN_PAGE)return pageLoginAdmin();
   return`<div class="center-page">
@@ -392,10 +394,10 @@ async function doGoogleLogin(){
     const provider=new firebase.auth.GoogleAuthProvider();
     provider.addScope('https://www.googleapis.com/auth/spreadsheets');
     provider.addScope('https://www.googleapis.com/auth/drive.file');
-    provider.setCustomParameters({login_hint:ADMIN_EMAIL});
+    provider.setCustomParameters({prompt:'select_account'});
     const result=await firebase.auth().signInWithPopup(provider);
     const email=result.user.email;
-    if(email!==ADMIN_EMAIL){await firebase.auth().signOut();if(errEl)errEl.textContent='Acesso negado. Use a conta Google autorizada.';return;}
+    if(!ehAdmin(email)){await firebase.auth().signOut();if(errEl)errEl.textContent='Acesso negado. Use a conta Google autorizada.';return;}
     S.googleToken=result.credential?.accessToken||'';
     if(S.googleToken){sessionStorage.setItem('sn:googleToken',S.googleToken);sessionStorage.setItem('sn:googleTokenAt',String(Date.now()));}
     S.session={isAdmin:true,adminEmail:email};
@@ -1835,7 +1837,7 @@ if(IS_ADMIN_PAGE){
   adminInatividade();
   (async()=>{
     const u=await acAguardarLoginAdmin();                       // o Firebase leva um instante para restaurar o login do Google
-    if(u&&u.email===ADMIN_EMAIL){await loadAll();if(S.erroLeitura)alert(ERRO_LEITURA_MSG);}
+    if(u&&ehAdmin(u.email)){await loadAll();if(S.erroLeitura)alert(ERRO_LEITURA_MSG);}
     else{S.session=null;S.page='login';sessionStorage.removeItem('sn:session');}
     render();
     if(S.page==='admin'&&typeof bkAutoDrive==='function')setTimeout(bkAutoDrive,1500);
