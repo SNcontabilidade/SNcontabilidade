@@ -118,12 +118,22 @@ async function bkRegistrar(patch) {
   try { await fsSet('backupmeta', window.__bkMeta); } catch (e) { console.warn('[backup] não consegui registrar a data do backup', e && e.message); }
   bkAtualizarInfo();
 }
+// o backup é só da conta principal (SN): para a outra conta de admin, nada dele aparece nem roda
+function bkPermitido() {
+  try {
+    const u = typeof firebase !== 'undefined' && firebase.auth && firebase.auth().currentUser;
+    const e = (u && u.email) || (typeof S !== 'undefined' && S.session && S.session.adminEmail) || '';
+    return typeof ehAdminPrincipal === 'function' ? ehAdminPrincipal(e) : false;
+  } catch (x) { return false; }
+}
 function bkInfoHTML() {
+  if (!bkPermitido()) return '';
   if (!window.__bkMeta) return '<span style="color:var(--muted)">Verificando o último backup…</span>';
   const s = bkStatus(window.__bkMeta);
   return '<span style="color:' + s.cor + ';font-weight:600">' + (s.nivel === 'ok' ? '✅ ' : '⚠️ ') + bkEsc(s.texto) + '</span><br><span style="color:var(--muted)">' + bkEsc(s.textoDrive) + '</span>';
 }
 function bkBannerConteudo() {
+  if (!bkPermitido()) return '';
   if (!window.__bkMeta) return '';
   const s = bkStatus(window.__bkMeta);
   if (!s.atrasado) return '';
@@ -138,6 +148,7 @@ function bkAtualizarInfo() {
 
 // 💾 baixa o arquivo no computador
 async function admBackup() {
+  if (!bkPermitido()) return;
   if (bkOcupado) return;
   bkOcupado = true; bkRotulo('⏳ Lendo o banco…');
   const ctx = { onde: '' };                                    // onde estava lendo, para o aviso dizer qual coleção falhou
@@ -214,6 +225,7 @@ function bkMsgErroDrive(e) {
   return (e && e.message) || 'erro desconhecido';
 }
 async function admBackupDrive() {
+  if (!bkPermitido()) return;
   if (bkOcupado) return;
   let token = bkTokenValido();
   let aReautenticar = null;
@@ -233,6 +245,7 @@ async function admBackupDrive() {
   } finally { bkOcupado = false; }
 }
 async function bkAutoDrive() {
+  if (!bkPermitido()) return;
   if (bkAutoRodando || bkOcupado) return;
   if (typeof S !== 'undefined' && S.erroLeitura) return;
   bkAutoRodando = true;
@@ -258,6 +271,7 @@ function bkModal(html) {
 }
 let bkPlano = null;
 function admRestaurar() {
+  if (!bkPermitido()) return;
   const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.json,application/json';
   inp.onchange = async () => {
     const f = inp.files && inp.files[0]; if (!f) return;
@@ -305,6 +319,7 @@ async function bkConfirmarRestaurar() {
 
 // botão da barra lateral do admin (o app.js só chama esta função, se ela existir)
 function bkBotaoHTML() {
+  if (!bkPermitido()) return '';
   if (!window.__bkMeta && !window.__bkMetaCarregando) { window.__bkMetaCarregando = true; setTimeout(bkCarregarMeta, 0); }
   return '<div id="bk-info" style="font-size:11px;line-height:1.4;margin:0 0 8px;text-align:center">' + bkInfoHTML() + '</div>'
     + '<button id="bk-btn" class="btn btn-ghost btn-full btn-sm" onclick="admBackup()" title="Baixa um arquivo .json com TODOS os dados do banco. Contém dados de clientes: guarde em local seguro e nunca no GitHub." style="margin-bottom:8px;white-space:normal;line-height:1.3">💾 Backup do banco</button>'

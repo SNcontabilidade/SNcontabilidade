@@ -342,6 +342,7 @@ function render(){
 const ADMIN_EMAILS=['contabilidade@snsolucoescontabeis.com','bpo@snsolucoescontabeis.com'];   // quem entra no admin (as regras do Firestore têm a mesma lista)
 const ADMIN_EMAIL=ADMIN_EMAILS[0];
 const ehAdmin=e=>ADMIN_EMAILS.includes(String(e||'').trim().toLowerCase());
+const ehAdminPrincipal=e=>String(e||'').trim().toLowerCase()===ADMIN_EMAIL.toLowerCase();   // só a conta principal (SN) tem o backup
 const IS_ADMIN_PAGE=typeof ADMIN_MODE!=='undefined'&&ADMIN_MODE===true;
 function pageLogin(){if(IS_ADMIN_PAGE)return pageLoginAdmin();
   return`<div class="center-page">
@@ -393,11 +394,15 @@ async function doGoogleLogin(){
   try{
     const provider=new firebase.auth.GoogleAuthProvider();
     provider.addScope('https://www.googleapis.com/auth/spreadsheets');
-    provider.addScope('https://www.googleapis.com/auth/drive.file');
-    provider.setCustomParameters({prompt:'select_account'});
+    // a permissão do Drive (backup) só é pedida à conta principal; a outra conta de admin nem vê esse pedido
+    let dicaAdmin='';try{dicaAdmin=localStorage.getItem('sn:ultimoAdmin')||'';}catch(e){}
+    const ePrincipal=ehAdminPrincipal(dicaAdmin);
+    if(ePrincipal)provider.addScope('https://www.googleapis.com/auth/drive.file');
+    provider.setCustomParameters(ePrincipal?{login_hint:dicaAdmin}:{prompt:'select_account'});
     const result=await firebase.auth().signInWithPopup(provider);
     const email=result.user.email;
     if(!ehAdmin(email)){await firebase.auth().signOut();if(errEl)errEl.textContent='Acesso negado. Use a conta Google autorizada.';return;}
+    try{localStorage.setItem('sn:ultimoAdmin',email);}catch(e){}
     S.googleToken=result.credential?.accessToken||'';
     if(S.googleToken){sessionStorage.setItem('sn:googleToken',S.googleToken);sessionStorage.setItem('sn:googleTokenAt',String(Date.now()));}
     S.session={isAdmin:true,adminEmail:email};

@@ -1,6 +1,6 @@
 // SN Soluções Contábeis – Service Worker
 
-const CACHE_NAME = 'sn-v10';
+const CACHE_NAME = 'sn-v11';
 const BASE = '/SNcontabilidade';
 
 const STATIC_ASSETS = [
